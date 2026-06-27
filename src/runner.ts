@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { createSession, closeSession } from "./firecrawl.js";
-import { classify } from "./classify.js";
+import { classify, classifyInfra } from "./classify.js";
 import { withTimeout } from "./timeout.js";
 import type { Flow, Step, StepEvent, RunTrace, RunStatus } from "./types.js";
 
@@ -66,10 +66,17 @@ async function execStep(
 ): Promise<void> {
   switch (step.type) {
     case "goto":
-      await page.goto(step.url, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
+      await page.goto(step.url, { timeout: timeoutMs, waitUntil: "load" });
       return;
     case "click":
-      await page.click(step.selector, { timeout: timeoutMs });
+      // Two-step on purpose. First assert the element is actually there/visible
+      // (so a missing selector still classifies as selector_miss). Then dispatch
+      // the click directly on the element rather than via screen coordinates:
+      // on the hosted browser, coordinate clicks desync from the rendered
+      // viewport after a navigation and silently never reach JS click handlers
+      // (native form submits still work, which is why login succeeds). See NOTES.
+      await page.waitForSelector(step.selector, { timeout: timeoutMs, state: "visible" });
+      await page.locator(step.selector).dispatchEvent("click");
       return;
     case "fill": {
       const value =
@@ -152,7 +159,7 @@ export async function runFlow(flow: Flow, opts: RunOptions): Promise<RunTrace> {
     const page = ctx.pages()[0] ?? (await ctx.newPage());
 
     if (flow.startUrl) {
-      await page.goto(flow.startUrl, { timeout: stepTimeout, waitUntil: "domcontentloaded" });
+      await page.goto(flow.startUrl, { timeout: stepTimeout, waitUntil: "load" });
     }
 
     for (let i = 0; i < flow.steps.length; i++) {
@@ -219,10 +226,7 @@ export async function runFlow(flow: Flow, opts: RunOptions): Promise<RunTrace> {
     trace.status = "failed";
     if (trace.failedStepIndex === undefined && steps[0]) {
       steps[0].status = "failed";
-      steps[0].failure = {
-        reason: "unknown",
-        message: `Could not start the browser session: ${(err as Error).message}`,
-      };
+      steps[0].failure = classifyInfra(err);
       trace.failedStepIndex = 0;
     }
   } finally {

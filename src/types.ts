@@ -75,6 +75,7 @@ export const failureReason = z.enum([
   "navigation", // navigation failed or landed somewhere unexpected
   "captcha", // a captcha / challenge interstitial was detected
   "auth_fail", // login did not produce the expected authenticated state
+  "rate_limit", // Firecrawl (or the target) returned 429 / rate-limit
   "blocked", // anti-bot / access-denied / 403-style block
   "js_error", // evaluate() threw
   "assertion", // an expect step's condition was false

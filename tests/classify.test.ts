@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classify } from "../src/classify.js";
+import { classify, classifyInfra } from "../src/classify.js";
 import { StepTimeoutError } from "../src/timeout.js";
 import type { Step } from "../src/types.js";
 
@@ -60,9 +60,30 @@ describe("classify — failure taxonomy", () => {
     expect(c.reason).toBe("navigation");
   });
 
+  it("classifies a 429 as rate_limit, ahead of other signals", () => {
+    const c = classify(click, new Error("Firecrawl /v2/interact -> 429: Rate limit exceeded"));
+    expect(c.reason).toBe("rate_limit");
+  });
+
   it("falls back to unknown honestly rather than mislabeling", () => {
     const c = classify(click, new Error("something we did not anticipate"));
     expect(c.reason).toBe("unknown");
     expect(c.message).toContain("something we did not anticipate");
+  });
+});
+
+describe("classifyInfra — session-level failures (before any step)", () => {
+  it("maps a 429 session-create failure to rate_limit", () => {
+    expect(classifyInfra(new Error("... -> 429: Rate limit exceeded")).reason).toBe(
+      "rate_limit",
+    );
+  });
+  it("maps a session timeout to timeout", () => {
+    expect(classifyInfra(new Error("Firecrawl /v2/interact timed out after 30000ms")).reason).toBe(
+      "timeout",
+    );
+  });
+  it("falls back to unknown otherwise", () => {
+    expect(classifyInfra(new Error("weird")).reason).toBe("unknown");
   });
 });

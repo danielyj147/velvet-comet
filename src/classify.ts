@@ -59,6 +59,14 @@ export function classify(
   const errMsg = error instanceof Error ? error.message : String(error);
   const html = (ctx.html ?? "").toLowerCase();
 
+  // 0. Rate limiting is unambiguous from the error and worth its own bucket.
+  if (/\b429\b|rate limit/i.test(errMsg)) {
+    return {
+      reason: "rate_limit",
+      message: `Rate limit hit (429). The client backs off and retries; if it still surfaces, the plan's requests/min cap was exceeded: ${errMsg}`,
+    };
+  }
+
   // 1. Page-level blockers take precedence over the step-level symptom.
   const captcha = includesAny(html, CAPTCHA_MARKERS);
   if (captcha) {
@@ -145,4 +153,15 @@ export function classify(
     reason: "unknown",
     message: `Unclassified failure: ${errMsg}`,
   };
+}
+
+/** Classify an infrastructure-level error (session creation / CDP connect) that
+ *  happens before we have a page or a specific step to blame. */
+export function classifyInfra(error: unknown): Classification {
+  const m = error instanceof Error ? error.message : String(error);
+  if (/\b429\b|rate limit/i.test(m))
+    return { reason: "rate_limit", message: `Could not start the browser session — rate limited (429). ${m}` };
+  if (/timed out|timeout/i.test(m))
+    return { reason: "timeout", message: `Could not start the browser session — timed out. ${m}` };
+  return { reason: "unknown", message: `Could not start the browser session: ${m}` };
 }

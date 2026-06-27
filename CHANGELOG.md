@@ -31,6 +31,22 @@ log is chronological and honest rather than versioned.
   timeline, failure panel (reason + screenshot + DOM), and re-run. Plain React +
   fetch polling (deliberately not TanStack — one polled endpoint, a simple list).
 
+- **Tests** (19): failure classification, the per-step timeout bound, secret
+  redaction, and store upsert/list — the parts that fail in the real world.
+- **Docs:** `README.md` (run steps), `ONEPAGER.md` (the weighted deliverable),
+  `NARRATIVE.md` (problem→solution arc for the call), `NOTES.md`, `CHANGELOG.md`.
+  Original brief preserved as `BRIEF.md`.
+
+### Changed
+- Extracted `withTimeout` + `StepTimeoutError` into `src/timeout.ts` so the
+  deadline is unit-testable without a browser.
+- `goto` now waits for `load` (not `domcontentloaded`) so page scripts are ready.
+- Click steps assert visibility then `dispatchEvent("click")` — coordinate clicks
+  silently no-op on the hosted browser after a navigation (see NOTES #2).
+- Added `rate_limit` to the failure taxonomy; session client retries 429/408/5xx
+  with bounded backoff + jitter (4xx terminal); session-level errors classified
+  via `classifyInfra`. (see NOTES #3)
+
 ### Fixed
 - Failure-capture swallowed errors and hung on animated pages. Now DOM and
   screenshot are captured independently with loud warnings, and the failure frame

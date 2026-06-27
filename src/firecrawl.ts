@@ -35,40 +35,70 @@ function apiKey(): string {
   return key;
 }
 
-/** fetch with a hard timeout so a slow Firecrawl call can never hang our runner.
- *  (Feedback #8 mocks exactly the failure of NOT bounding external calls.) */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A non-retryable HTTP error (auth/validation 4xx). Retrying it just wastes
+ *  time and credits, so it short-circuits the retry loop. */
+class TerminalHttpError extends Error {}
+
+/** Retry only what's safe to retry: transient 429/408/5xx. */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 408 || (status >= 500 && status < 600);
+}
+
+/** fetch with a hard timeout (a slow Firecrawl call can never hang our runner —
+ *  feedback #8 mocks exactly the failure of NOT bounding external calls) plus
+ *  bounded exponential backoff with jitter for transient failures. */
 async function fetchJson(
   path: string,
-  init: RequestInit & { timeoutMs?: number } = {},
+  init: RequestInit & { timeoutMs?: number; maxRetries?: number } = {},
 ): Promise<any> {
-  const { timeoutMs = 30_000, ...rest } = init;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      ...rest,
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey()}`,
-        "Content-Type": "application/json",
-        ...(rest.headers ?? {}),
-      },
-    });
-    const text = await res.text();
-    const body = text ? safeParse(text) : undefined;
-    if (!res.ok) {
+  const { timeoutMs = 30_000, maxRetries = 3, ...rest } = init;
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        ...rest,
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${apiKey()}`,
+          "Content-Type": "application/json",
+          ...(rest.headers ?? {}),
+        },
+      });
+      const text = await res.text();
+      const body = text ? safeParse(text) : undefined;
+      if (res.ok) return body;
+
       const msg = body?.error ?? body?.message ?? text ?? res.statusText;
-      throw new Error(`Firecrawl ${path} -> ${res.status}: ${msg}`);
+      const detail = `Firecrawl ${path} -> ${res.status}: ${msg}`;
+      // Terminal 4xx: throw a type the catch won't retry.
+      if (!isRetryableStatus(res.status)) throw new TerminalHttpError(detail);
+      lastErr = new Error(detail);
+    } catch (err) {
+      if (err instanceof TerminalHttpError) throw err;
+      lastErr =
+        err instanceof Error && err.name === "AbortError"
+          ? new Error(`Firecrawl ${path} timed out after ${timeoutMs}ms`)
+          : err;
+    } finally {
+      clearTimeout(timer);
     }
-    return body;
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Firecrawl ${path} timed out after ${timeoutMs}ms`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
+
+    if (attempt === maxRetries) break;
+
+    // Exponential backoff with half-jitter, capped — ~0.5s, 1s, 2s.
+    const backoff = Math.min(2_000, 500 * 2 ** attempt);
+    const delay = backoff / 2 + Math.random() * (backoff / 2);
+    console.warn(
+      `[firecrawl] ${path} attempt ${attempt + 1} failed (${(lastErr as Error).message.slice(0, 90)}); retrying in ${Math.round(delay)}ms`,
+    );
+    await sleep(delay);
   }
+  throw lastErr;
 }
 
 function safeParse(text: string): any {
