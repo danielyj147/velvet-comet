@@ -13,5 +13,5 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src", "scripts", "web", "tests"]
+  "include": ["src", "scripts", "web", "tests", "searchtrace"]
 }

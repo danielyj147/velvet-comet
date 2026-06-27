@@ -10,6 +10,7 @@
   "scripts": {
     "checkpoint": "tsx scripts/checkpoint.ts",
     "demo": "tsx scripts/demo.ts",
+    "search:demo": "tsx searchtrace/demo.ts",
     "server": "tsx src/server.ts",
     "web": "vite",
     "build:web": "vite build",
