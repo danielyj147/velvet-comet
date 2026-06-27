@@ -1,0 +1,19 @@
+# secrets — never commit
+.env
+.env.local
+
+# deps & build
+node_modules/
+dist/
+web-dist/
+
+# runtime data
+*.sqlite
+*.sqlite-*
+data/traces/
+*.log
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/
