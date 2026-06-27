@@ -61,6 +61,22 @@ log is chronological and honest rather than versioned.
 - Hardened `.gitignore` to ignore all `.env*` except the template, after a real
   key was briefly placed in a tracked file. Key confirmed absent from history.
 
+### Added — searchtrace (the Search-role pivot)
+- **`searchtrace/`** — an observable retrieval pipeline over Firecrawl `/v2/search`:
+  `expand → federate → RRF fuse → dedup → rerank(relevance) → precision gate → MMR
+  diversify`. Recall via query expansion + multi-source/domain federation + RRF;
+  precision via relevance scoring (consensus + topical) and an opt-in gate;
+  diversity via MMR (domain + content). The trace is the product: per-stage funnel,
+  per-result provenance (RRF rank, cross-query agreement, merges), coverage panel
+  (recall/precision/diversity index), and plain-language hints. Latency tiers
+  `fast|balanced|thorough`. CLI: `npm run search:demo` / `make search Q=...`.
+- **Semantic stages via local Ollama** (`searchtrace/embeddings.ts`,
+  `nomic-embed-text`): cosine relevance/dedup/MMR when available, robust across
+  `/api/embed` and `/api/embeddings`, with automatic lexical fallback.
+- **`Makefile`** — one entry point for both products (install/env/test/demo/search/…).
+- **`CLAUDE.md`** updated for the Search-role target, the two-product layout, and the
+  pivot; original brief lives in `BRIEF.md`.
+
 ### Deliberately not built (so far)
 - Partial "retry from step N" replay (full re-run covers the demo; ephemeral
   sessions make mid-session resume dishonest).
