@@ -160,8 +160,11 @@ export interface Coverage {
 export interface SearchTrace {
   query: string;
   tier: Tier;
-  /** The intent used for ranking, and whether it was inferred (auto) or explicit. */
-  intent: { value: Intent; inferred: boolean };
+  /** The ranking criterion used, whether it was inferred (auto) or explicit, and an
+   *  objective lift: the mean criterion score of the final top-K vs. ordering by
+   *  relevance alone. after > before means the criterion knob actually reordered
+   *  toward its target (the verifiable claim — not "the AI ranked it better"). */
+  intent: { value: Intent; inferred: boolean; lift?: { criterion: string; before: number; after: number; k: number } };
   expansions: string[];
   lists: string[];
   stages: StageRecord[];

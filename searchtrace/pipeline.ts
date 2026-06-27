@@ -14,7 +14,7 @@ import { dedup } from "./dedup.js";
 import { scoreRelevance, precisionGate } from "./rerank.js";
 import { diversify } from "./diversify.js";
 import { getEmbedder } from "./embeddings.js";
-import { classifyIntent, intentScore } from "./intent.js";
+import { classifyIntent, rerankByIntent } from "./intent.js";
 import type { Intent, Recency } from "./types.js";
 import { log } from "./log.js";
 
@@ -171,30 +171,19 @@ export async function runSearch(
   // 6b. Intent rerank (#5): blend the intent criterion into the ordering score.
   //     relevance stays the pure precision signal (the gate used it); rankScore is
   //     what MMR orders by, so news ranks fresh, buying ranks comparison pages, etc.
+  let intentLift: ReturnType<typeof rerankByIntent>;
   await stage(
-    `intent (${intent})`,
+    `rank by ${intent}`,
     gated.length,
     () => {
-      if (intent === "general") {
-        for (const c of gated) c.rankScore = c.relevance;
-        return gated;
-      }
-      // Score by the intent criterion, then min–max normalize across the result set
-      // so even small variations become a usable spread (uniform signal → no effect).
-      const scored = gated.map((c) => ({ c, ...intentScore(intent, c, req.query) }));
-      const vals = scored.map((s) => s.score);
-      const min = Math.min(...vals);
-      const span = Math.max(...vals) - min;
-      for (const s of scored) {
-        const norm = span > 0 ? (s.score - min) / span : 0;
-        s.c.intent = { factor: s.factor, score: s.score };
-        s.c.rankScore = (1 - INTENT_WEIGHT) * s.c.relevance + INTENT_WEIGHT * norm;
-      }
-      gated.sort((a, b) => (b.rankScore ?? b.relevance) - (a.rankScore ?? a.relevance));
+      intentLift = rerankByIntent(gated, intent, req.query, INTENT_WEIGHT, req.topK);
       return gated;
     },
     (c) => c.length,
-    () => (intent === "general" ? "no intent boost" : `ranked by ${intent}`),
+    () =>
+      intentLift
+        ? `${intentLift.criterion}: ${intentLift.before.toFixed(2)}→${intentLift.after.toFixed(2)} in top-${intentLift.k}`
+        : "relevance order (no criterion)",
   );
 
   // 7. Diversify with MMR down to topK (ranks on rankScore, spreads by domain).
@@ -220,7 +209,7 @@ export async function runSearch(
   });
 
   return {
-    intent: { value: intent, inferred },
+    intent: { value: intent, inferred, lift: intentLift },
     query: req.query,
     tier: req.tier,
     expansions,

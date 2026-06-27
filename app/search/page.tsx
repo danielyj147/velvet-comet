@@ -331,8 +331,17 @@ function Results({ trace, flash }: { trace: SearchTrace; flash: number | null })
       <div className="mb-3 flex items-center gap-3 text-sm text-[var(--muted)]">
         <span>{trace.results.length} results</span>
         <Badge style={{ color: "var(--primary)", borderColor: "var(--primary)" }}>
-          intent: {trace.intent.value}{trace.intent.inferred ? " (auto)" : ""}
+          rank by: {trace.intent.value}{trace.intent.inferred ? " (auto)" : ""}
         </Badge>
+        {trace.intent.lift && trace.intent.value !== "general" && (
+          <span
+            className="text-xs text-[var(--muted)]"
+            title={`Objective check: mean ${trace.intent.lift.criterion} score of the top-${trace.intent.lift.k}, ordered by relevance vs by this criterion.`}
+          >
+            {trace.intent.lift.criterion} {trace.intent.lift.before.toFixed(2)}
+            <span className="text-[var(--green)]"> → {trace.intent.lift.after.toFixed(2)}</span>
+          </span>
+        )}
         <div className="flex-1" />
         <Button size="sm" variant="outline" onClick={() => exportTrace(trace)}>
           Export JSON

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyIntent, intentScore } from "../searchtrace/intent.js";
+import { classifyIntent, intentScore, rerankByIntent } from "../searchtrace/intent.js";
 import type { Candidate } from "../searchtrace/types.js";
 
 function cand(partial: Partial<Candidate>): Candidate {
@@ -50,5 +50,27 @@ describe("intentScore — the criterion changes with intent", () => {
 
   it("general applies no boost", () => {
     expect(intentScore("general", cand({ title: "best vs comparison" }), "").score).toBe(0);
+  });
+});
+
+describe("rerankByIntent — the criterion knob measurably reorders (the verifiable claim)", () => {
+  it("lifts comparison density in top-k, even when comparison pages have lower relevance", () => {
+    const pool = [
+      cand({ canonicalUrl: "a", relevance: 1.0, title: "X overview" }),
+      cand({ canonicalUrl: "b", relevance: 0.9, title: "X homepage" }),
+      cand({ canonicalUrl: "c", relevance: 0.4, title: "X vs Y full comparison and review" }),
+      cand({ canonicalUrl: "d", relevance: 0.3, title: "Top 10 X tested, ranked" }),
+    ];
+    const lift = rerankByIntent(pool, "buying", "", 0.4, 2)!;
+    // the comparison knob pushes comparison pages into the top-k vs relevance order
+    expect(lift.after).toBeGreaterThan(lift.before);
+    // and a high-comparison / low-relevance page now outranks a bland high-relevance one
+    expect(pool[0]!.canonicalUrl === "c" || pool[1]!.canonicalUrl === "c").toBe(true);
+  });
+
+  it("general intent leaves relevance order untouched (no lift)", () => {
+    const pool = [cand({ canonicalUrl: "a", relevance: 0.9 }), cand({ canonicalUrl: "b", relevance: 0.5 })];
+    expect(rerankByIntent(pool, "general", "", 0.4, 2)).toBeUndefined();
+    expect(pool[0]!.rankScore).toBe(0.9);
   });
 });

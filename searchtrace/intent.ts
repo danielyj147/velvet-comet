@@ -57,6 +57,49 @@ function authority(c: Candidate): number {
 }
 const fromList = (c: Candidate, frag: string) => c.appearances.some((a) => a.list.includes(frag));
 
+export interface IntentLift {
+  criterion: string;
+  before: number;
+  after: number;
+  k: number;
+}
+
+/**
+ * Reorder candidates by the chosen criterion (in place): score each, normalize the
+ * scores across the set, blend with relevance, sort by the blended rankScore. Returns
+ * an objective lift — the mean criterion score of the top-k ordered by relevance vs.
+ * by this criterion — so the knob's effect is *measurable*, not just asserted.
+ */
+export function rerankByIntent(
+  candidates: Candidate[],
+  intent: Intent,
+  query: string,
+  weight: number,
+  topK: number,
+): IntentLift | undefined {
+  if (intent === "general") {
+    for (const c of candidates) c.rankScore = c.relevance;
+    return undefined;
+  }
+  const scored = candidates.map((c) => ({ c, ...intentScore(intent, c, query) }));
+  const vals = scored.map((s) => s.score);
+  const min = Math.min(...vals);
+  const span = Math.max(...vals) - min;
+  let factor = "";
+  for (const s of scored) {
+    const norm = span > 0 ? (s.score - min) / span : 0;
+    s.c.intent = { factor: s.factor, score: s.score };
+    s.c.rankScore = (1 - weight) * s.c.relevance + weight * norm;
+    factor = s.factor;
+  }
+  const k = Math.min(topK, candidates.length);
+  const meanCrit = (arr: Candidate[]) =>
+    arr.length ? arr.reduce((sum, c) => sum + (c.intent?.score ?? 0), 0) / arr.length : 0;
+  const byRel = [...candidates].sort((a, b) => b.relevance - a.relevance).slice(0, k);
+  candidates.sort((a, b) => (b.rankScore ?? b.relevance) - (a.rankScore ?? a.relevance));
+  return { criterion: factor, before: meanCrit(byRel), after: meanCrit(candidates.slice(0, k)), k };
+}
+
 /** The intent score (0..1, pre-normalization) + the human label for the boost. */
 export function intentScore(intent: Intent, c: Candidate, query: string): { score: number; factor: string } {
   const qTerms = new Set(termList(query));
