@@ -7,7 +7,8 @@ import { HoloCard } from "@/components/HoloCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Search as SearchIcon } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Search as SearchIcon, Sparkles, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TIERS: Tier[] = ["fast", "balanced", "thorough"];
@@ -25,6 +26,8 @@ export default function SearchPage() {
   const [domainsText, setDomainsText] = React.useState("");
   const [diversity, setDiversity] = React.useState(0.3);
   const [minRelevance, setMinRelevance] = React.useState(0);
+  const [useAI, setUseAI] = React.useState(false);
+  const [ai, setAi] = React.useState<{ allowed: boolean; reason: string }>({ allowed: false, reason: "" });
   const [trace, setTrace] = React.useState<SearchTrace | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -33,6 +36,14 @@ export default function SearchPage() {
 
   const toggle = (list: string[], set: (v: string[]) => void, v: string) =>
     set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+
+  // Ask the server whether AI is available (models configured + not deploy-disabled).
+  React.useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((c) => setAi({ allowed: !!c.allowed, reason: c.reason ?? "" }))
+      .catch(() => {});
+  }, []);
 
   const run = React.useCallback(async () => {
     setLoading(true);
@@ -49,6 +60,7 @@ export default function SearchPage() {
           nicheDomains: domainsText.split(",").map((s) => s.trim()).filter(Boolean),
           diversity,
           minRelevance,
+          useAI: ai.allowed && useAI,
           topK: 20,
         }),
       });
@@ -60,7 +72,7 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  }, [query, tier, sources, categories, domainsText, diversity, minRelevance]);
+  }, [query, tier, sources, categories, domainsText, diversity, minRelevance, useAI, ai.allowed]);
 
   const jumpTo = React.useCallback((rank: number) => {
     document.getElementById(`result-${rank}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -80,10 +92,12 @@ export default function SearchPage() {
       cmds.push({ id: `cat-${c}`, group: "Settings", label: `Toggle category: ${c}`, hint: categories.includes(c) ? "on" : "off", perform: () => toggle(categories, setCategories, c) });
     for (const d of [0, 0.3, 0.6, 0.9])
       cmds.push({ id: `div-${d}`, group: "Settings", label: `Diversity: ${d}`, hint: diversity === d ? "current" : "", perform: () => setDiversity(d) });
+    if (ai.allowed)
+      cmds.push({ id: "act-ai", group: "Settings", label: `AI: ${useAI ? "on" : "off"}`, hint: "embeddings + LLM expansion", perform: () => setUseAI((v) => !v) });
     cmds.push({ id: "act-run", group: "Actions", label: "Run search", perform: () => void run() });
     cmds.push({ id: "act-focus", group: "Actions", label: "Focus query box", perform: () => inputRef.current?.focus() });
     return cmds;
-  }, [trace, tier, sources, categories, diversity, run, jumpTo]);
+  }, [trace, tier, sources, categories, diversity, useAI, ai.allowed, run, jumpTo]);
   useCommandRegister(commands, [commands]);
 
   return (
@@ -140,6 +154,16 @@ export default function SearchPage() {
           placeholder="niche domains: trade.com, regional.org"
           className="h-8 w-56 rounded-md border bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-[var(--primary)]"
         />
+        {/* AI toggle — disabled (with a reason tooltip) when the server can't serve models. */}
+        <span
+          className="flex items-center gap-2"
+          title={ai.allowed ? "Embeddings (Qwen3) + LLM expansion (DeepSeek)" : ai.reason}
+        >
+          <Sparkles className={cn("h-4 w-4", ai.allowed && useAI ? "text-[var(--primary)]" : "text-[var(--muted)]")} />
+          <span className={cn(ai.allowed ? "text-[var(--foreground)]" : "text-[var(--muted)]")}>AI</span>
+          <Switch checked={ai.allowed && useAI} disabled={!ai.allowed} onCheckedChange={setUseAI} />
+          {!ai.allowed && <Info className="h-3.5 w-3.5 text-[var(--muted)]" />}
+        </span>
       </div>
 
       {error && <div className="mt-6 rounded-lg border border-[var(--red)] bg-[var(--surface)] p-3 text-sm text-[var(--red)]">Error: {error}</div>}

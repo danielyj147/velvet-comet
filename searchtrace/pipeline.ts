@@ -7,7 +7,7 @@ import {
   type Coverage,
   type Semantics,
 } from "./types.js";
-import { expand, type Expander } from "./expand.js";
+import { expand, heuristicExpander, type Expander } from "./expand.js";
 import { federateQuery } from "./firecrawl-search.js";
 import { rrfFuse } from "./fuse.js";
 import { dedup } from "./dedup.js";
@@ -26,12 +26,16 @@ import { log } from "./log.js";
  */
 export async function runSearch(
   input: SearchRequest,
-  opts: { expander?: Expander } = {},
+  opts: { expander?: Expander; useModels?: boolean } = {},
 ): Promise<SearchTrace> {
   const req = searchRequest.parse(input);
+  // AI (embeddings + LLM expansion) is on by default for the CLI; the web app passes
+  // this explicitly from the user's toggle (gated by server config). When off, we
+  // skip the embed stage and force the deterministic heuristic expander.
+  const useModels = opts.useModels ?? true;
   const startedAt = Date.now();
   const stages: StageRecord[] = [];
-  log("search.start", { query: req.query, tier: req.tier, diversity: req.diversity });
+  log("search.start", { query: req.query, tier: req.tier, diversity: req.diversity, ai: useModels });
 
   // Wrap each stage so it self-reports to the trace (count in/out, timing, a note)
   // and logs its latency. Keeping this one helper is why every stage below stays a
@@ -53,10 +57,11 @@ export async function runSearch(
   };
 
   // 1. Expand the query (wider, not just deeper).
+  const expander = opts.expander ?? (useModels ? undefined : heuristicExpander);
   const expansions = await stage(
     "expand",
     1,
-    () => expand(req.query, req.tier, opts.expander),
+    () => expand(req.query, req.tier, expander),
     (e) => e.length,
     (e) => `${e.length} query variant(s)`,
   );
@@ -93,15 +98,17 @@ export async function runSearch(
     (c) => `${c.length} unique URLs after canonicalization`,
   );
 
-  // 3b. Embed query + candidates (semantic upgrade for the stages below). Falls
-  //     back to lexical automatically if Ollama isn't running.
-  const semantics = await stage(
-    "embed",
-    fused.length,
-    () => embedCandidates(req.query, fused),
-    (s) => (s ? fused.length : 0),
-    (s) => (s ? `vectors via ${s.model}` : "lexical fallback (no embedder)"),
-  );
+  // 3b. Embed query + candidates (semantic upgrade for the stages below) — only
+  //     when AI is on. Falls back to lexical automatically if Ollama isn't running.
+  const semantics = useModels
+    ? await stage(
+        "embed",
+        fused.length,
+        () => embedCandidates(req.query, fused),
+        (s) => (s ? fused.length : 0),
+        (s) => (s ? `vectors via ${s.model}` : "lexical fallback (no embedder)"),
+      )
+    : null;
 
   // 4. Collapse content near-duplicates (syndication; semantic when embedded).
   const deduped = await stage(

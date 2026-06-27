@@ -6,7 +6,20 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — the magical UX (latest)
+### Added — AI toggle + deploy guard (latest)
+- **AI toggle** in the search UI (embeddings + LLM expansion on/off), with a
+  matching ⌘K command. Default OFF — the fast lexical path is the first experience.
+- **Deploy guard:** `AI_DISABLED=1` (or no models configured) greys out the toggle
+  with a tooltip explaining why; the server refuses to use models regardless of the
+  request. `/api/config` is the single source of truth the UI reads.
+- Pipeline gained a `useModels` flag (skips the embed stage + forces heuristic
+  expansion when off); CLI `--no-ai`.
+
+### Fixed
+- **Hydration mismatch** in `Bubbles`: randomness now generated after mount
+  (client-only) instead of during render, so SSR/CSR agree.
+
+### Added — the magical UX
 - **Tailwind v4 + shadcn-style components** (Button, Badge, Dialog, Checkbox,
   Slider) on Radix; `cn()` util; dark warm theme tokens.
 - **Holographic cards** (`HoloCard`) — pointer-tracked 3D tilt + spectral sheen

@@ -30,17 +30,21 @@ const bar = (n: number, max: number, width = 24) =>
 async function main() {
   console.log(`\nquery: "${query}"   tier: ${tier}   diversity: ${diversity}   minRelevance: ${minRelevance}\n`);
 
-  const trace = await runSearch({
-    query,
-    tier,
-    sources,
-    categories,
-    nicheDomains: domains,
-    diversity,
-    minRelevance,
-    topK: Number(arg("--topK") ?? 15),
-    limit: Number(arg("--limit") ?? 10),
-  });
+  const useModels = !process.argv.includes("--no-ai");
+  const trace = await runSearch(
+    {
+      query,
+      tier,
+      sources,
+      categories,
+      nicheDomains: domains,
+      diversity,
+      minRelevance,
+      topK: Number(arg("--topK") ?? 15),
+      limit: Number(arg("--limit") ?? 10),
+    },
+    { useModels },
+  );
 
   console.log("PIPELINE");
   const maxCount = Math.max(...trace.stages.map((s) => Math.max(s.countIn, s.countOut)));
