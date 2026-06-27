@@ -1,0 +1,11 @@
+{
+  "name": "login-bad-creds",
+  "description": "Login with a wrong password to show auth failure as a first-class, classified outcome (feedback #11: 'what happens when a login fails halfway through a run?').",
+  "steps": [
+    { "type": "goto", "url": "https://the-internet.herokuapp.com/login", "label": "Open the portal login" },
+    { "type": "fill", "selector": "#username", "value": { "secret": "DEMO_USERNAME" }, "label": "Enter username (from secret)" },
+    { "type": "fill", "selector": "#password", "value": "wrong-password-on-purpose", "label": "Enter a wrong password" },
+    { "type": "click", "selector": "button[type=\"submit\"]", "label": "Submit login" },
+    { "type": "expect", "selector": ".flash.success", "meaning": "auth", "timeoutMs": 6000, "label": "Confirm we are authenticated" }
+  ]
+}
