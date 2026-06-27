@@ -21,3 +21,6 @@ public/artifacts/
 .DS_Store
 .vscode/
 .idea/
+
+# build caches
+tsconfig.tsbuildinfo
