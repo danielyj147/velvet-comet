@@ -100,42 +100,45 @@
   opacity: var(--holo-opacity, 0);
   transition: opacity 0.3s ease-out;
 }
-/* holographic foil: a diagonal spectral band + a fine sparkle grid, drifting with
-   the pointer. color-dodge over the dark card reads as iridescent metal. */
+/* iridescent sheen + glare, in the app's own palette (amber→blue→violet→green),
+   soft-light so it reads as a gentle shimmer rather than a rainbow sticker. */
 .holo::before {
-  background-image:
-    repeating-linear-gradient(
-      110deg,
-      rgba(255, 119, 115, 0.5) 0%,
-      rgba(255, 237, 95, 0.5) 12%,
-      rgba(168, 255, 95, 0.5) 24%,
-      rgba(131, 255, 247, 0.5) 36%,
-      rgba(120, 148, 255, 0.5) 48%,
-      rgba(216, 117, 255, 0.5) 60%,
-      rgba(255, 119, 115, 0.5) 72%
+  background:
+    radial-gradient(
+      circle at var(--mx, 50%) var(--my, 50%),
+      rgba(255, 255, 255, 0.25),
+      rgba(255, 255, 255, 0) 42%
     ),
-    repeating-linear-gradient(
-      133deg,
-      rgba(0, 0, 0, 0) 0,
-      rgba(255, 255, 255, 0.28) 2px,
-      rgba(0, 0, 0, 0) 3px,
-      rgba(0, 0, 0, 0) 6px
+    linear-gradient(
+      115deg,
+      rgba(251, 191, 36, 0.22) 0%,
+      rgba(96, 165, 250, 0.22) 38%,
+      rgba(204, 95, 255, 0.2) 64%,
+      rgba(52, 211, 153, 0.18) 100%
     );
-  background-size: 300% 300%, 200% 200%;
-  background-position: var(--bg-x, 50%) var(--bg-y, 50%), var(--bg-x, 50%) var(--bg-y, 50%);
-  background-blend-mode: overlay;
-  mix-blend-mode: color-dodge;
-  filter: brightness(0.7) contrast(1.5) saturate(1.1);
-}
-/* glare: a bright spot that tracks the pointer, kept gentle so text stays legible */
-.holo::after {
-  background: radial-gradient(
-    circle at var(--mx, 50%) var(--my, 50%),
-    rgba(255, 255, 255, 0.32),
-    rgba(255, 255, 255, 0.08) 18%,
-    rgba(255, 255, 255, 0) 45%
-  );
+  background-size: 200% 200%, 220% 220%;
+  background-position:
+    var(--mx, 50%) var(--my, 50%),
+    var(--bg-x, 50%) var(--bg-y, 50%);
   mix-blend-mode: soft-light;
+}
+/* fine, sparse, slowly-twinkling sparkle — revealed only around the pointer.
+   It lives BEHIND the content (z-1), so it never sits over the text. */
+.holo::after {
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.85) 0.5px, transparent 1.2px),
+    radial-gradient(rgba(180, 215, 255, 0.6) 0.5px, transparent 1.2px);
+  background-size: 16px 16px, 24px 24px;
+  background-position: 0 0, 8px 12px;
+  mix-blend-mode: screen;
+  opacity: calc(var(--holo-opacity, 0) * 0.55);
+  -webkit-mask: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), #000 0%, transparent 38%);
+  mask: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), #000 0%, transparent 38%);
+  animation: holo-twinkle 2.4s steps(2, jump-none) infinite;
+}
+@keyframes holo-twinkle {
+  0%, 100% { background-position: 0 0, 8px 12px; }
+  50% { background-position: 2px 1px, 6px 13px; }
 }
 .holo:hover {
   box-shadow: 0 20px 55px -14px rgba(0, 0, 0, 0.75);
