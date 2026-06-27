@@ -6,8 +6,26 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added
-- **Project direction chosen:** Direction A — step-level observability for
+### Added — unified app + hybrid search (latest)
+- **One Next.js app over both products** (`app/`): routes `/search` and `/flows`,
+  API routes calling the shared libs, and a global **⌘K** command palette (search
+  results, jump, toggle settings, navigate). Replaced the two standalone Express
+  servers + the Vite SPA — one product surface, two trace views. Renamed `src/` →
+  `tracewright/` and folded its CLIs in, so the products are siblings.
+- **Hybrid retrieval** in searchtrace: in-memory **BM25** (no DB — ephemeral
+  per-query pool) ⊕ **dense embeddings** ⊕ **source-consensus**, fused by RRF into
+  the relevance score (with a per-result signal breakdown for the UI).
+- **LLM query expansion** (DeepSeek-R1 via Ollama) for the `thorough` tier — real
+  sub-question decomposition; deterministic heuristic for `balanced`.
+- **Models are opt-in:** the semantic/LLM path activates only when `EMBED_MODEL` /
+  `EXPAND_MODEL` are set (Qwen3-Embedding-8B, DeepSeek-R1-14B). A fresh clone runs
+  the full lexical path (BM25 + heuristic) with just a Firecrawl key — reviewer-
+  friendly and deployable as a live link.
+- **Structured, time-focused logging** (`searchtrace/log.ts`): per-stage latency,
+  a timing breakdown, and a `search.done` summary.
+- **IR unit tests** (BM25 ranking + idf, URL canonicalization, RRF fusion).
+
+### Added — searchtrace (the Search-role pivot)
   Firecrawl browser flows (serves feedback #7 "which step failed" and #11
   authenticated multi-step sessions). Backed by the data: "error confusion /
   debugging help" is the #1 support category (214/90d, 38%).

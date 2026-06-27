@@ -14,6 +14,7 @@ import { dedup } from "./dedup.js";
 import { scoreRelevance, precisionGate } from "./rerank.js";
 import { diversify } from "./diversify.js";
 import { getEmbedder } from "./embeddings.js";
+import { log } from "./log.js";
 
 /**
  * The retrieval pipeline, and the trace it emits:
@@ -30,9 +31,11 @@ export async function runSearch(
   const req = searchRequest.parse(input);
   const startedAt = Date.now();
   const stages: StageRecord[] = [];
+  log("search.start", { query: req.query, tier: req.tier, diversity: req.diversity });
 
-  // Wrap each stage so it self-reports to the trace (count in/out, timing, a note).
-  // Keeping this one helper is why every stage below stays a single declarative call.
+  // Wrap each stage so it self-reports to the trace (count in/out, timing, a note)
+  // and logs its latency. Keeping this one helper is why every stage below stays a
+  // single declarative call — and why timing is captured uniformly everywhere.
   const stage = async <T>(
     name: string,
     countIn: number,
@@ -42,13 +45,10 @@ export async function runSearch(
   ): Promise<T> => {
     const t0 = Date.now();
     const result = await fn();
-    stages.push({
-      name,
-      countIn,
-      countOut: sizeOf(result),
-      ms: Date.now() - t0,
-      note: note?.(result),
-    });
+    const ms = Date.now() - t0;
+    const countOut = sizeOf(result);
+    stages.push({ name, countIn, countOut, ms, note: note?.(result) });
+    log("stage", { name, ms, in: countIn, out: countOut });
     return result;
   };
 
@@ -147,6 +147,15 @@ export async function runSearch(
   const endedAt = Date.now();
   const coverage = computeCoverage(candidatesFound, fused, deduped, results, droppedLowRelevance);
   const hints = buildHints(results, coverage, req.diversity);
+
+  log("search.timing", Object.fromEntries(stages.map((s) => [s.name.replace(/\W+/g, "_"), s.ms])));
+  log("search.done", {
+    ms: endedAt - startedAt,
+    results: results.length,
+    domains: coverage.uniqueDomains,
+    meanRelevance: Number(coverage.meanRelevance.toFixed(3)),
+    semantic: !!semantics,
+  });
 
   return {
     query: req.query,

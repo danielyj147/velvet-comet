@@ -1,29 +1,38 @@
 import type { Candidate, Semantics } from "./types.js";
-import { tokenize, jaccard } from "./text.js";
+import { termList } from "./text.js";
+import { buildBm25 } from "./bm25.js";
 import { cosine } from "./embeddings.js";
 
 /**
- * Relevance scoring (the precision stage) and the precision gate.
+ * Hybrid relevance scoring (the precision stage) + the precision gate.
  *
- * Recall is won upstream by expansion + federation; the risk is that breadth
- * drags in off-topic results, hurting precision. So we score every candidate's
- * relevance to the ORIGINAL query (not the expansions) and (a) rank on it in MMR,
- * (b) optionally drop the long tail of low-relevance hits.
+ * Recall is won upstream by expansion + federation; here we decide how *relevant*
+ * each candidate is to the ORIGINAL query, fusing three complementary signals:
+ *   - bm25:      in-memory lexical match over the candidate pool (exact terms)
+ *   - dense:     cosine(query, doc) from local embeddings (meaning / paraphrase)
+ *   - consensus: the RRF score from fusing Firecrawl's own returned lists
  *
- * Relevance blends two signals so neither alone can mislead:
- *   - consensus: normalized RRF — how many federated lists agreed (catches
- *     semantically-relevant pages whose wording differs from the query)
- *   - lexical:   query-term coverage in title+description (catches on-topic pages
- *     that happened to appear in only one list)
- * A high-consensus page with zero lexical overlap still scores well; a one-list
- * page with no query terms scores low and is gated out.
- *
- * This blend is the exact seam for a cross-encoder reranker (bge-reranker, Cohere
- * Rerank, or a local transformers.js MiniLM): replace `lexical` with the model's
- * (query, doc) score for a large precision gain, gated to the top-k for cost.
+ * Each signal ranks the pool; we fuse the *ranks* with Reciprocal Rank Fusion so
+ * incomparable score scales don't fight. This is canonical hybrid search (lexical
+ * ⊕ dense), with source-consensus as a third voter. The fused score becomes
+ * `relevance`; MMR ranks on it and the gate filters on it.
  */
-const CONSENSUS_WEIGHT = 0.6;
-const LEXICAL_WEIGHT = 0.4;
+const RRF_K = 60;
+
+function rankMap(candidates: Candidate[], scoreOf: (c: Candidate) => number): Map<string, number> {
+  const ranked = [...candidates].sort((a, b) => scoreOf(b) - scoreOf(a));
+  const m = new Map<string, number>();
+  ranked.forEach((c, i) => m.set(c.canonicalUrl, i + 1));
+  return m;
+}
+
+/** Min–max normalize a score into 0..1 for display. */
+function normalizer(values: number[]): (v: number) => number {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min;
+  return (v) => (span > 0 ? (v - min) / span : 0);
+}
 
 export function scoreRelevance(
   query: string,
@@ -31,20 +40,46 @@ export function scoreRelevance(
   semantics?: Semantics,
 ): Candidate[] {
   if (candidates.length === 0) return candidates;
-  const queryTok = tokenize(query);
-  const maxRrf = Math.max(...candidates.map((c) => c.rrfScore)) || 1;
+
+  const queryTerms = termList(query);
+  const bm25 = buildBm25(candidates.map((c) => `${c.title} ${c.description}`));
   const queryVec = semantics?.queryVec;
 
+  // Raw per-signal scores.
+  const bm25Score = (c: Candidate, i: number) => bm25.score(queryTerms, i);
+  const denseScore = (c: Candidate) => {
+    const v = semantics?.vectorOf(c.canonicalUrl);
+    return queryVec && v ? Math.max(0, cosine(queryVec, v)) : 0;
+  };
+  const indexOf = new Map(candidates.map((c, i) => [c.canonicalUrl, i]));
+
+  // Rank each signal across the pool.
+  const bm25Ranks = rankMap(candidates, (c) => bm25Score(c, indexOf.get(c.canonicalUrl)!));
+  const denseRanks = queryVec ? rankMap(candidates, denseScore) : null;
+  const consensusRanks = rankMap(candidates, (c) => c.rrfScore);
+
+  // Normalizers for the displayed signal breakdown.
+  const nBm = normalizer(candidates.map((c, i) => bm25Score(c, i)));
+  const nDense = normalizer(candidates.map(denseScore));
+  const nCons = normalizer(candidates.map((c) => c.rrfScore));
+
+  // Fuse the ranks (RRF) into the final relevance, then normalize 0..1.
+  const rrf = (url: string) => {
+    let s = 1 / (RRF_K + bm25Ranks.get(url)!) + 1 / (RRF_K + consensusRanks.get(url)!);
+    if (denseRanks) s += 1 / (RRF_K + denseRanks.get(url)!);
+    return s;
+  };
+  const fused = new Map(candidates.map((c) => [c.canonicalUrl, rrf(c.canonicalUrl)]));
+  const nFused = normalizer([...fused.values()]);
+
   for (const c of candidates) {
-    const consensus = c.rrfScore / maxRrf;
-    const candVec = semantics?.vectorOf(c.canonicalUrl);
-    // Semantic similarity when available (catches relevant-but-differently-worded
-    // pages); lexical query-term coverage otherwise.
-    const topical =
-      queryVec && candVec
-        ? Math.max(0, cosine(queryVec, candVec))
-        : jaccard(queryTok, tokenize(`${c.title} ${c.description}`));
-    c.relevance = CONSENSUS_WEIGHT * consensus + LEXICAL_WEIGHT * topical;
+    const i = indexOf.get(c.canonicalUrl)!;
+    c.relevance = nFused(fused.get(c.canonicalUrl)!);
+    c.signals = {
+      bm25: nBm(bm25Score(c, i)),
+      dense: queryVec ? nDense(denseScore(c)) : null,
+      consensus: nCons(c.rrfScore),
+    };
   }
   return candidates.sort((a, b) => b.relevance - a.relevance);
 }

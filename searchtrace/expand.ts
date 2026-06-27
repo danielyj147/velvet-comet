@@ -9,6 +9,7 @@
  */
 
 import type { Tier } from "./types.js";
+import { llmExpandQueries } from "./llm.js";
 
 export type Expander = (query: string, max: number) => Promise<string[]>;
 
@@ -39,18 +40,28 @@ export const heuristicExpander: Expander = async (query, max) => {
   return out.slice(0, max);
 };
 
+/** LLM expander (DeepSeek via Ollama) with automatic fallback to heuristic. */
+export const smartExpander: Expander = async (query, max) => {
+  const llm = await llmExpandQueries(query, max - 1); // leave room for the raw query
+  if (llm.length) return [query, ...llm].slice(0, max);
+  return heuristicExpander(query, max);
+};
+
 /**
- * Expand a query for a tier using the given expander (default: heuristic).
- * Always dedupes and guarantees the raw query is present.
+ * Expand a query for a tier. fast = raw only; balanced = fast deterministic
+ * variants; thorough = LLM decomposition (DeepSeek) for genuinely diverse sources.
+ * Always dedupes and guarantees the raw query is first. An explicit expander
+ * overrides the tier default.
  */
 export async function expand(
   query: string,
   tier: Tier,
-  expander: Expander = heuristicExpander,
+  expander?: Expander,
 ): Promise<string[]> {
   const max = expansionBudget(tier);
   if (max <= 1) return [query];
-  const expansions = await expander(query, max);
+  const chosen = expander ?? (tier === "thorough" ? smartExpander : heuristicExpander);
+  const expansions = await chosen(query, max);
   const set = new Set<string>([query, ...expansions]);
   return [...set].slice(0, max);
 }

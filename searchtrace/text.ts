@@ -15,14 +15,14 @@ export function canonicalizeUrl(raw: string): string {
     u.protocol = "https:";
     u.hash = "";
     u.hostname = u.hostname.toLowerCase().replace(/^www\./, "");
+    // Normalize a trailing slash on the path (so /a/ and /a dedup the same).
+    u.pathname = u.pathname.replace(/\/+$/, "");
     const kept = [...u.searchParams.entries()]
       .filter(([k]) => !TRACKING_PARAMS.test(k))
       .sort(([a], [b]) => a.localeCompare(b));
     u.search = "";
     for (const [k, v] of kept) u.searchParams.append(k, v);
-    let s = u.toString();
-    if (s.endsWith("/")) s = s.slice(0, -1);
-    return s;
+    return u.toString();
   } catch {
     return raw.trim();
   }
@@ -41,13 +41,17 @@ const STOPWORDS = new Set(
   "the a an and or of to in for on with is are be this that it as at by from".split(" "),
 );
 
+/** Unique terms — for set-overlap similarity (Jaccard). */
 export function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((t) => t.length > 2 && !STOPWORDS.has(t)),
-  );
+  return new Set(termList(text));
+}
+
+/** Terms with repeats preserved — for term-frequency scoring (BM25). */
+export function termList(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
 }
 
 /** Jaccard similarity of two token sets — 0 (disjoint) to 1 (identical). */

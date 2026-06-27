@@ -76,6 +76,9 @@ export interface Candidate {
   /** Relevance to the ORIGINAL query, 0..1 (set by the rerank stage) — the
    *  precision signal. MMR ranks on this; the precision gate filters on it. */
   relevance: number;
+  /** Per-signal breakdown behind `relevance`, each normalized 0..1, for the UI.
+   *  dense is null when no embedder was available. */
+  signals?: { bm25: number; dense: number | null; consensus: number };
   /** Whether MMR kept this in the final, diversified list. */
   selected: boolean;
   /** 1-based final rank after diversification (only for selected). */

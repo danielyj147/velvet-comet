@@ -4,12 +4,13 @@
  * if Ollama isn't reachable, getEmbedder() returns null and each stage falls back
  * to its lexical path, so the pipeline always runs.
  *
- * Default model: nomic-embed-text (`ollama pull nomic-embed-text`).
- * Override with EMBED_MODEL / OLLAMA_HOST.
+ * Opt-in: the semantic path is OFF unless EMBED_MODEL is set, so a fresh clone
+ * (reviewer, or a deployed live link) runs the lexical path with no local models.
+ * Set EMBED_MODEL (e.g. qwen3-embedding:8b) + run Ollama to enable it.
  */
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-const EMBED_MODEL = process.env.EMBED_MODEL ?? "nomic-embed-text";
+const EMBED_MODEL = process.env.EMBED_MODEL ?? "";
 
 export interface Embedder {
   model: string;
@@ -22,8 +23,23 @@ export interface Embedder {
  *  `/api/embeddings` ({prompt} -> {embedding:[...]}). We detect which works. */
 type EmbedMode = "embed" | "embeddings";
 
-/** Probe Ollama once and return an Embedder, or null if unavailable. */
+// Cache the probe result so we don't re-pay the (possibly slow) model cold-load on
+// every search. Large embedding models can take >5s to load on first call.
+let probeCache: { at: number; embedder: Embedder | null } | null = null;
+const PROBE_TTL_MS = 5 * 60_000;
+const PROBE_TIMEOUT_MS = 30_000;
+
+/** Return a cached Embedder, or probe Ollama (both embed routes) for one.
+ *  Returns null immediately when EMBED_MODEL is unset (model path opt-in). */
 export async function getEmbedder(): Promise<Embedder | null> {
+  if (!EMBED_MODEL) return null;
+  if (probeCache && Date.now() - probeCache.at < PROBE_TTL_MS) return probeCache.embedder;
+  const embedder = await probeEmbedder();
+  probeCache = { at: Date.now(), embedder };
+  return embedder;
+}
+
+async function probeEmbedder(): Promise<Embedder | null> {
   for (const mode of ["embed", "embeddings"] as EmbedMode[]) {
     try {
       const res = await fetch(`${OLLAMA_HOST}/api/${mode}`, {
@@ -34,14 +50,14 @@ export async function getEmbedder(): Promise<Embedder | null> {
             ? { model: EMBED_MODEL, input: ["ping"] }
             : { model: EMBED_MODEL, prompt: "ping" },
         ),
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
       if (res.ok) return new OllamaEmbedder(mode);
       if (res.status === 404) continue; // wrong route or model not pulled — try the other
       console.warn(`[embeddings] Ollama /api/${mode} responded ${res.status}; lexical fallback.`);
       return null;
     } catch {
-      console.warn(`[embeddings] Ollama not reachable at ${OLLAMA_HOST}; lexical fallback.`);
+      console.warn(`[embeddings] Ollama ${OLLAMA_HOST} slow/unreachable for ${EMBED_MODEL}; lexical fallback.`);
       return null;
     }
   }
@@ -73,7 +89,7 @@ class OllamaEmbedder implements Embedder {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: this.model, input: batch }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`Ollama /api/embed failed: ${res.status}`);
     return ((await res.json()) as { embeddings: number[][] }).embeddings;
@@ -86,7 +102,7 @@ class OllamaEmbedder implements Embedder {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: this.model, prompt }),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!res.ok) throw new Error(`Ollama /api/embeddings failed: ${res.status}`);
       out.push(((await res.json()) as { embedding: number[] }).embedding);
