@@ -11,7 +11,8 @@
     "dev": "next dev -p 8788",
     "build": "next build",
     "start": "next start -p 8788",
-    "search:demo": "tsx searchtrace/demo.ts",
+    "studio": "next start -p 8788",
+    "cli": "tsx searchtrace/cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

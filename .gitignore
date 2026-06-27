@@ -26,3 +26,6 @@ public/artifacts/
 
 # build caches
 tsconfig.tsbuildinfo
+
+# CLI/studio session output
+sessions/

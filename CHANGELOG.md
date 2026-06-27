@@ -6,6 +6,24 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
+### Added — adaptive completeness engine + CLI/studio surface (latest)
+- **Adaptive completeness loop (#1):** each round re-searches a query variant while
+  `excludeDomains = all domains seen so far` — the AI-free move that forces the long
+  tail (trade pubs, regional press) to surface instead of "more of the same". Stops at
+  the relevant-results target, a new-domain plateau, or the round budget; the trace
+  reports per-round new-domain growth and the stop reason. Verified: niche domains
+  surface across rounds where a bigger limit never would.
+- **CLI is the primary surface** (`spectra` / `make cli` / `make batch`) — built for
+  the customer's nightly batch of thousands of queries: one query or `--batch file`,
+  bounded concurrency, full `--help`. Every run writes a **session**.
+- **Sessions = a folder of JSON** (`searchtrace/sessions.ts`, default `./sessions`,
+  `SPECTRA_SESSIONS_DIR` to override) — no DB; CLI and studio share it.
+- **Studio** (`make studio`) — Prisma-Studio-style: a scrollable sessions sidebar
+  (newest first) browsing whatever the batch wrote, plus "New search" to run ad-hoc
+  and save. New `/api/sessions` + `/api/sessions/[id]`; live search now persists.
+- Removed the old single-pane demo CLI; `targetResults`/`maxRounds` knobs added.
+
+
 ### Removed / Changed — cut intent, user-first UX (latest)
 - **Cut the intent feature entirely** (may revisit). Reordering by a heuristic
   criterion was hard to verify; tightening the core (observable hybrid retrieval —

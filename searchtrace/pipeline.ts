@@ -8,7 +8,8 @@ import {
   type Semantics,
 } from "./types.js";
 import { expand, heuristicExpander, type Expander } from "./expand.js";
-import { federateQuery } from "./firecrawl-search.js";
+import { federateQuery, type RankedList, type RawItem } from "./firecrawl-search.js";
+import { termList, tokenize, jaccard, domainOf, canonicalizeUrl } from "./text.js";
 import { rrfFuse } from "./fuse.js";
 import { dedup } from "./dedup.js";
 import { scoreRelevance, precisionGate } from "./rerank.js";
@@ -16,6 +17,13 @@ import { diversify } from "./diversify.js";
 import { getEmbedder } from "./embeddings.js";
 import type { Recency } from "./types.js";
 import { log } from "./log.js";
+
+/** A result counts as "relevant" if its absolute lexical overlap with the original
+ *  query clears this floor — cheap and stable across rounds (unlike pool-normalized
+ *  relevance). It's only the loop's stop signal; final ranking uses the hybrid score. */
+const RELEVANCE_FLOOR = 0.1;
+/** Stop mining when a round adds fewer than this many new relevant domains. */
+const PLATEAU_K = 2;
 
 /** Result-recency (`recency`) maps to Firecrawl's `tbs` time filter. */
 const TBS: Record<Recency, string | undefined> = {
@@ -28,11 +36,12 @@ const TBS: Record<Recency, string | undefined> = {
 
 /**
  * The retrieval pipeline, and the trace it emits:
- *   expand → federate → RRF fuse → embed → dedup → rerank → precision gate → MMR
- * Recall is won early (expand + federate), precision in the middle (rerank + gate),
- * diversity at the end (MMR). Each stage records count-in / count-out / time so the
- * funnel is legible, and every surviving result carries its provenance. That — better
- * recall *and* a reason to trust it — is the whole product.
+ *   expand → [adaptive mining loop] → RRF fuse → embed → dedup → rerank → gate → MMR
+ * Completeness is won by the loop: each round searches a query variant while excluding
+ * the domains already seen, so new sources surface instead of "more of the same"; it
+ * stops at the target, a plateau, or the round budget. Precision is the relevance
+ * floor (loop) + rerank/gate (final); diversity is MMR. Each stage self-reports
+ * count-in / count-out / time, so the funnel — and how complete it got — is legible.
  */
 export async function runSearch(
   input: SearchRequestInput,
@@ -78,28 +87,61 @@ export async function runSearch(
     (e) => `${e.length} query variant(s)`,
   );
 
-  // 2. Federate each expansion across sources, categories, and niche domains.
-  const lists = await stage(
-    "federate",
-    expansions.length,
-    async () => {
-      const perQuery = await Promise.all(
-        expansions.map((q) =>
-          federateQuery(q, {
-            sources: req.sources,
-            categories: req.categories,
-            nicheDomains: req.nicheDomains,
-            limit: req.limit,
-            tbs,
-            contentMaxAge: req.scrapeContent ? req.maxAge : undefined,
-          }),
-        ),
-      );
-      return perQuery.flat();
-    },
-    (l) => l.length,
-    (l) => `${l.length} ranked lists, ${l.reduce((n, x) => n + x.items.length, 0)} raw hits`,
-  );
+  // 2. Adaptive completeness mining. Each round searches a query variant while
+  //    EXCLUDING every domain seen so far, so new domains surface instead of "forty
+  //    more of the same SEO winners". We stop when we have enough *relevant* results,
+  //    when a round stops adding new relevant domains (the tail is exhausted), or when
+  //    the round budget runs out. "Relevant" = an absolute lexical match to the
+  //    ORIGINAL query (cheap + stable across rounds); the expensive hybrid ranking
+  //    runs once at the end.
+  const queryTerms = new Set(termList(req.query));
+  const isRelevant = (it: RawItem) =>
+    jaccard(queryTerms, tokenize(`${it.title} ${it.description}`)) >= RELEVANCE_FLOOR;
+
+  const lists: RankedList[] = [];
+  const seenDomains = new Set<string>();
+  const relevantUrls = new Set<string>();
+  const rounds: SearchTrace["rounds"] = [];
+  let stopReason: SearchTrace["stopReason"] = "budget";
+
+  for (let round = 1; round <= req.maxRounds; round++) {
+    const q = expansions[Math.min(round - 1, expansions.length - 1)]!;
+    const excludeDomains = round === 1 ? [] : [...seenDomains];
+    const roundLists = await stage(
+      `mine round ${round}`,
+      seenDomains.size,
+      () =>
+        federateQuery(q, {
+          sources: req.sources,
+          categories: req.categories,
+          nicheDomains: round === 1 ? req.nicheDomains : [], // explicit niche domains once
+          excludeDomains,
+          limit: req.limit,
+          tbs,
+          contentMaxAge: req.scrapeContent ? req.maxAge : undefined,
+        }),
+      (ls) => ls.reduce((n, l) => n + l.items.length, 0),
+      () => `"${q}"${round > 1 ? ` · excluding ${seenDomains.size} seen domains` : ""}`,
+    );
+    lists.push(...roundLists);
+
+    // Count NEW relevant domains this round, then mark every domain seen (so the
+    // next round excludes it — relevant or not, we don't want it again).
+    let newRelevantDomains = 0;
+    for (const l of roundLists)
+      for (const it of l.items) {
+        const d = domainOf(it.url);
+        const rel = isRelevant(it);
+        if (rel) relevantUrls.add(canonicalizeUrl(it.url));
+        if (rel && !seenDomains.has(d)) newRelevantDomains++;
+      }
+    for (const l of roundLists) for (const it of l.items) seenDomains.add(domainOf(it.url));
+
+    rounds.push({ round, query: q, newRelevantDomains, relevantSoFar: relevantUrls.size });
+
+    if (relevantUrls.size >= req.targetResults) { stopReason = "target reached"; break; }
+    if (round > 1 && newRelevantDomains < PLATEAU_K) { stopReason = "plateau"; break; }
+  }
 
   const candidatesFound = lists.reduce((n, l) => n + l.items.length, 0);
 
@@ -183,6 +225,8 @@ export async function runSearch(
     tier: req.tier,
     expansions,
     lists: [...new Set(lists.map((l) => l.list))],
+    rounds,
+    stopReason,
     stages,
     coverage,
     results,

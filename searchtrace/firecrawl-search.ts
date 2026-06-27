@@ -35,6 +35,7 @@ interface SearchCallOptions {
   sources?: string[];
   categories?: string[];
   includeDomains?: string[];
+  excludeDomains?: string[];
   limit?: number;
   /** Firecrawl time filter, e.g. "qdr:w" for the past week (result recency). */
   tbs?: string;
@@ -61,6 +62,7 @@ async function searchCall(query: string, opts: SearchCallOptions): Promise<any> 
   if (rest.sources) body.sources = rest.sources;
   if (rest.categories?.length) body.categories = rest.categories;
   if (rest.includeDomains?.length) body.includeDomains = rest.includeDomains;
+  if (rest.excludeDomains?.length) body.excludeDomains = rest.excludeDomains;
   if (rest.tbs) body.tbs = rest.tbs;
   if (rest.scrapeOptions) body.scrapeOptions = rest.scrapeOptions;
 
@@ -138,6 +140,10 @@ export async function federateQuery(
     nicheDomains: string[];
     limit: number;
     tbs?: string;
+    /** Domains to exclude — the AI-free long-tail mining lever. Applied to the
+     *  base + category calls only (Firecrawl forbids include+exclude together, and
+     *  the niche calls use includeDomains). */
+    excludeDomains?: string[];
     /** When set, fetch full content per result with this cache freshness (ms). */
     contentMaxAge?: number;
   },
@@ -146,10 +152,11 @@ export async function federateQuery(
   const scrapeOptions: ScrapeOptions | undefined =
     opts.contentMaxAge != null ? { formats: ["markdown"], maxAge: opts.contentMaxAge } : undefined;
   const common = { limit: opts.limit, tbs: opts.tbs, scrapeOptions };
+  const exclude = opts.excludeDomains?.length ? { excludeDomains: opts.excludeDomains } : {};
 
   // Base sources (web/news) in one call; split the response per source.
   tasks.push(
-    searchCall(query, { sources: opts.sources, ...common })
+    searchCall(query, { sources: opts.sources, ...exclude, ...common })
       .then((data) => splitBySource(query, data))
       .catch((e) => {
         console.warn(`[search] base list failed (${query}):`, (e as Error).message);
@@ -160,7 +167,7 @@ export async function federateQuery(
   // Each category as its own list.
   for (const cat of opts.categories) {
     tasks.push(
-      searchCall(query, { categories: [cat], ...common })
+      searchCall(query, { categories: [cat], ...exclude, ...common })
         .then((data) => splitBySource(query, data, `category:${cat}`))
         .catch((e) => {
           console.warn(`[search] category ${cat} failed:`, (e as Error).message);

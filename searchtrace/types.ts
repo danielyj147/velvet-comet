@@ -47,6 +47,11 @@ export const searchRequest = z.object({
    *  default is 2 days (172800000); 0 forces fresh. This is cache freshness — a
    *  *scrape* param — distinct from `recency` (result age). */
   maxAge: z.number().int().nonnegative().default(172800000),
+  /** Completeness target: keep mining (expanding + excluding seen domains) until we
+   *  have this many *relevant* results — or we plateau, or hit maxRounds. Soft. */
+  targetResults: z.number().int().positive().default(25),
+  /** Budget ceiling: max mining rounds (each round is more Firecrawl calls). */
+  maxRounds: z.number().int().min(1).max(6).default(4),
   /** MMR tradeoff: 0.0 = pure relevance, 1.0 = maximum diversity. */
   diversity: z.number().min(0).max(1).default(0.3),
   /** Precision gate: drop candidates whose relevance to the ORIGINAL query is
@@ -141,11 +146,25 @@ export interface Coverage {
   diversityIndex: number;
 }
 
+/** One adaptive mining round — the per-round coverage growth that answers
+ *  "how complete is this?" (new relevant domains discovered before it plateaued). */
+export interface MiningRound {
+  round: number;
+  query: string;
+  newRelevantDomains: number;
+  relevantSoFar: number;
+}
+
+export type StopReason = "target reached" | "plateau" | "budget";
+
 export interface SearchTrace {
   query: string;
   tier: Tier;
   expansions: string[];
   lists: string[];
+  /** The adaptive completeness loop's per-round telemetry + why it stopped. */
+  rounds: MiningRound[];
+  stopReason: StopReason;
   stages: StageRecord[];
   coverage: Coverage;
   results: Candidate[];

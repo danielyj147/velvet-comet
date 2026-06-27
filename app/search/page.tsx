@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useCommandRegister, type Cmd } from "../command/CommandProvider";
 import type { SearchTrace, Tier, Candidate, Recency } from "../../searchtrace/types";
+import type { SessionSummary } from "../../searchtrace/sessions";
 import { HoloCard } from "@/components/HoloCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,8 @@ export default function SearchPage() {
   const [minRelevance, setMinRelevance] = React.useState(0);
   const [scrapeContent, setScrapeContent] = React.useState(false);
   const [maxAge, setMaxAge] = React.useState(172800000);
+  const [targetResults, setTargetResults] = React.useState(25);
+  const [maxRounds, setMaxRounds] = React.useState(4);
   const [useAI, setUseAI] = React.useState(false);
   const [ai, setAi] = React.useState<{ allowed: boolean; reason: string }>({ allowed: false, reason: "" });
 
@@ -46,12 +49,39 @@ export default function SearchPage() {
   const toggle = (list: string[], set: (v: string[]) => void, v: string) =>
     set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
+  const [sessions, setSessions] = React.useState<SessionSummary[]>([]);
+  const [activeSession, setActiveSession] = React.useState<string | null>(null);
+
   React.useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
       .then((c) => setAi({ allowed: !!c.allowed, reason: c.reason ?? "" }))
       .catch(() => {});
   }, []);
+
+  const refreshSessions = React.useCallback(
+    () => fetch("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {}),
+    [],
+  );
+  React.useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
+
+  const openSession = React.useCallback(async (id: string) => {
+    const t = await fetch(`/api/sessions/${id}`).then((r) => r.json());
+    if (t?.query) {
+      setTrace(t as SearchTrace);
+      setActiveSession(id);
+      setError(null);
+    }
+  }, []);
+
+  const newSearch = () => {
+    setActiveSession(null);
+    setTrace(null);
+    setError(null);
+    inputRef.current?.focus();
+  };
 
   const run = React.useCallback(async () => {
     setLoading(true);
@@ -69,21 +99,25 @@ export default function SearchPage() {
           recency,
           scrapeContent,
           maxAge,
+          targetResults,
+          maxRounds,
           diversity,
           minRelevance,
           useAI: ai.allowed && useAI,
-          topK: 20,
+          topK: targetResults,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "search failed");
-      setTrace(json as SearchTrace);
+      setTrace(json.trace as SearchTrace);
+      setActiveSession(json.sessionId ?? null);
+      refreshSessions();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [query, tier, sources, categories, domainsText, recency, scrapeContent, maxAge, diversity, minRelevance, useAI, ai.allowed]);
+  }, [query, tier, sources, categories, domainsText, recency, scrapeContent, maxAge, targetResults, maxRounds, diversity, minRelevance, useAI, ai.allowed, refreshSessions]);
 
   const jumpTo = React.useCallback((rank: number) => {
     document.getElementById(`result-${rank}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -109,7 +143,9 @@ export default function SearchPage() {
   useCommandRegister(commands, [commands]);
 
   return (
-    <main className="mx-auto max-w-3xl px-5 pb-24 pt-10">
+    <div className="mx-auto flex max-w-6xl gap-6 px-5 pb-24 pt-8">
+      <SessionsSidebar sessions={sessions} active={activeSession} onOpen={openSession} onNew={newSearch} />
+      <main className="min-w-0 flex-1">
       {/* The one obvious thing to do: search. */}
       <div className="flex gap-2">
         <div className="relative flex-1">
@@ -143,7 +179,7 @@ export default function SearchPage() {
 
       {showAdvanced && (
         <Advanced
-          {...{ tier, setTier, categories, setCategories, domainsText, setDomainsText, diversity, setDiversity, minRelevance, setMinRelevance, scrapeContent, setScrapeContent, maxAge, setMaxAge, useAI, setUseAI, ai, toggle }}
+          {...{ tier, setTier, categories, setCategories, domainsText, setDomainsText, diversity, setDiversity, minRelevance, setMinRelevance, scrapeContent, setScrapeContent, maxAge, setMaxAge, targetResults, setTargetResults, maxRounds, setMaxRounds, useAI, setUseAI, ai, toggle }}
         />
       )}
 
@@ -162,12 +198,59 @@ export default function SearchPage() {
 
       {trace && (
         <div className="mt-6">
+          {activeSession && (
+            <div className="mb-3 text-xs text-[var(--muted)]">viewing saved session — edit the query and search to run a new one</div>
+          )}
           <CoverageStrip trace={trace} onInspect={() => setShowInspect((v) => !v)} inspecting={showInspect} />
           {showInspect && <Inspect trace={trace} />}
           <Results trace={trace} flash={flash} />
         </div>
       )}
-    </main>
+      </main>
+    </div>
+  );
+}
+
+/** Studio sidebar: scrollable saved sessions (CLI batch + live), newest first. */
+function SessionsSidebar({
+  sessions,
+  active,
+  onOpen,
+  onNew,
+}: {
+  sessions: SessionSummary[];
+  active: string | null;
+  onOpen: (id: string) => void;
+  onNew: () => void;
+}) {
+  const fmt = (t: number) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return (
+    <aside className="hidden w-64 shrink-0 lg:block">
+      <button onClick={onNew} className="mb-3 w-full rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-[var(--primary-fg)]">
+        + New search
+      </button>
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+        Sessions ({sessions.length})
+      </div>
+      <div className="max-h-[calc(100vh-180px)] space-y-1 overflow-auto pr-1">
+        {sessions.length === 0 && <div className="text-xs text-[var(--muted)]">No saved sessions yet. Run a search, or the CLI batch.</div>}
+        {sessions.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => onOpen(s.id)}
+            className={cn(
+              "w-full rounded-lg border bg-[var(--surface)] px-2.5 py-2 text-left",
+              active === s.id ? "border-[var(--primary)]" : "border-[var(--border)]",
+            )}
+          >
+            <div className="truncate text-sm">{s.query}</div>
+            <div className="mt-0.5 text-[11px] text-[var(--muted)]">
+              {s.results} results · {s.domains} domains · {fmt(s.savedAt)}
+            </div>
+          </button>
+        ))}
+      </div>
+    </aside>
   );
 }
 
@@ -202,6 +285,14 @@ function Advanced(p: any) {
       <label className="flex items-center justify-between gap-2">
         min relevance <span className="tabular-nums text-[var(--foreground)]">{p.minRelevance.toFixed(2)}</span>
         <Slider value={[p.minRelevance]} min={0} max={0.6} step={0.05} onValueChange={([v]: number[]) => p.setMinRelevance(v)} />
+      </label>
+      <label className="flex items-center justify-between gap-2" title="Keep mining until this many relevant results (or a plateau / the round budget).">
+        target results <span className="tabular-nums text-[var(--foreground)]">{p.targetResults}</span>
+        <Slider value={[p.targetResults]} min={10} max={60} step={5} onValueChange={([v]: number[]) => p.setTargetResults(v)} />
+      </label>
+      <label className="flex items-center justify-between gap-2" title="Budget: more rounds = more thorough, more Firecrawl calls.">
+        max rounds <span className="tabular-nums text-[var(--foreground)]">{p.maxRounds}</span>
+        <Slider value={[p.maxRounds]} min={1} max={6} step={1} onValueChange={([v]: number[]) => p.setMaxRounds(v)} />
       </label>
       <label className="flex items-center justify-between gap-2">
         categories
@@ -244,6 +335,7 @@ function CoverageStrip({ trace, onInspect, inspecting }: { trace: SearchTrace; o
       <span>· searched <strong className="text-[var(--foreground)]">{trace.lists.length}</strong> source list(s)</span>
       {c.duplicatesCollapsed > 0 && <span>· merged <strong className="text-[var(--foreground)]">{c.duplicatesCollapsed}</strong> duplicate(s)</span>}
       <span>· <strong className="text-[var(--foreground)]">{c.uniqueDomains}</strong> distinct domains</span>
+      <span>· <strong className="text-[var(--foreground)]">{trace.rounds.length}</strong> round(s), stopped: {trace.stopReason}</span>
       <button onClick={onInspect} className={cn("ml-auto rounded-full border px-3 py-0.5", inspecting && "border-[var(--primary)] text-[var(--foreground)]")}>
         {inspecting ? "hide" : "how it works"}
       </button>

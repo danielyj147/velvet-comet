@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runSearch } from "../../../searchtrace/pipeline";
 import { searchRequest } from "../../../searchtrace/types";
 import { aiConfig } from "../../../searchtrace/config";
+import { saveSession } from "../../../searchtrace/sessions";
 
 // The pipeline drives a real browser-free federation but can run many calls in
 // "thorough" mode, so give it room.
@@ -23,9 +24,13 @@ export async function POST(req: NextRequest) {
   // hard-disable models regardless of what the client requests).
   const requestedAI = (body as { useAI?: boolean })?.useAI === true;
   const useModels = aiConfig().allowed && requestedAI;
+  // A live search is also saved as a session, so it shows up in the studio next to
+  // the nightly batch runs. `save:false` skips it (e.g. throwaway queries).
+  const persist = (body as { save?: boolean })?.save !== false;
   try {
     const trace = await runSearch(parsed.data, { useModels });
-    return NextResponse.json(trace);
+    const sessionId = persist ? await saveSession(trace) : null;
+    return NextResponse.json({ trace, sessionId });
   } catch (err) {
     console.error("[api/search] failed:", err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
