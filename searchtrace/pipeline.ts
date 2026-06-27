@@ -17,10 +17,11 @@ import { getEmbedder } from "./embeddings.js";
 
 /**
  * The retrieval pipeline, and the trace it emits:
- *   expand -> federate -> RRF fuse -> dedup -> diversify (MMR)
- * Each stage records count-in / count-out / time so the funnel is legible, and
- * every surviving result carries its provenance. This is the whole product:
- * better recall *and* a reason to trust it.
+ *   expand → federate → RRF fuse → embed → dedup → rerank → precision gate → MMR
+ * Recall is won early (expand + federate), precision in the middle (rerank + gate),
+ * diversity at the end (MMR). Each stage records count-in / count-out / time so the
+ * funnel is legible, and every surviving result carries its provenance. That — better
+ * recall *and* a reason to trust it — is the whole product.
  */
 export async function runSearch(
   input: SearchRequest,
@@ -30,6 +31,8 @@ export async function runSearch(
   const startedAt = Date.now();
   const stages: StageRecord[] = [];
 
+  // Wrap each stage so it self-reports to the trace (count in/out, timing, a note).
+  // Keeping this one helper is why every stage below stays a single declarative call.
   const stage = async <T>(
     name: string,
     countIn: number,

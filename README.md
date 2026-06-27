@@ -1,98 +1,64 @@
-# tracewright
+# Firecrawl Traces — make the opaque legible
 
-**Step-level observability for Firecrawl browser flows.** A multi-step browser
-automation on Firecrawl that breaks today comes back as one opaque
-`SCRAPE_FAILED`. tracewright runs the same flow step-by-step and tells you
-**which step failed, why, and what the page looked like at that moment** — with a
-screenshot, a DOM snapshot, and a classified failure reason.
+A Firecrawl operation that fails or under-delivers usually comes back as a black
+box: one error, or one ranked list with no idea *why*. This project turns that black
+box into a **trace** — every stage and every result, with the reason it's there and
+what to do next — across two surfaces that share the same idea:
 
-Built for a Firecrawl take-home. Addresses customer feedback **#7** ("tell me
-which step failed and what the page looked like") and **#11** (authenticated
-multi-step sessions, credentials, login-failure semantics). These map to the #1
-support category in the internal data: *error confusion / debugging help* (214 of
-~565 tickets in 90 days). See [`NARRATIVE.md`](./NARRATIVE.md) for the full
-reasoning and [`ONEPAGER.md`](./ONEPAGER.md) for the summary.
+- **`searchtrace/` → `/search`** — an observable **retrieval pipeline** over
+  Firecrawl search: `expand → federate → RRF fuse → embed → dedup → rerank →
+  precision gate → MMR diversify`. Recall *and* precision you can see, with
+  per-result provenance and a coverage panel. (Built for the Search role; serves
+  customer asks #1 completeness, #5 intent/rerank, #4 latency tiers.)
+- **`tracewright/` → `/flows`** — step-level observability for **browser flows**:
+  which step failed, why, and what the page looked like — not one opaque
+  `SCRAPE_FAILED`. (Serves #7 and #11.)
 
-## How it works
-
-Firecrawl's Browser Sandbox session (`POST /v2/interact`) returns a `cdpUrl`. We
-connect Playwright to that hosted browser over CDP and drive a declarative flow
-ourselves — so Firecrawl owns the real anti-bot browser, and we own per-step
-timing, screenshots, DOM capture, and failure classification.
+`app/` is one Next.js app over both, with a global **⌘K** command palette. Why this
+shape: see [`narratives/08-the-search-rethink.md`](./narratives/08-the-search-rethink.md)
+and [`ONEPAGER.md`](./ONEPAGER.md).
 
 ## Run it (under a minute)
 
 ```bash
-npm install
-cp .env.example .env          # then put your Firecrawl key in .env
+make install
+make env          # creates .env — add your FIRECRAWL_API_KEY
+make dev          # Next app on http://localhost:8788
 ```
 
-**CLI** — fastest way to see a trace:
+Open http://localhost:8788 → **Search** and **Flows**. Press **⌘K** anywhere to
+search results, jump, or toggle settings.
+
+Optional — semantic search (better precision/dedup/diversity) via a local model:
 
 ```bash
-npm run demo                  # runs flows/vendor-portal-broken.json
-npm run demo flows/vendor-portal.json
+make embeddings   # ollama pull nomic-embed-text  (auto lexical fallback if absent)
 ```
 
-**Web viewer** — the real surface:
+## CLIs (same logic, headless)
 
 ```bash
-npm run build:web             # build the React viewer
-npm run server                # serves UI + API on http://localhost:8787
+make search Q="small business accounting software" ARGS="--tier thorough --diversity 0.5"
+make flow-demo FLOW=flows/vendor-portal-broken.json
+make checkpoint   # validate the Firecrawl CDP connection (1 short session)
+make test         # failure-path + IR unit tests
+make              # list all targets
 ```
-
-Open http://localhost:8787, pick a flow, hit **Run**, and watch the step timeline
-fill in live. A failed step expands to its reason, screenshot, and DOM snapshot.
-
-> Dev mode (hot reload): run `npm run server` and `npm run web` in two terminals;
-> the Vite dev server on :5173 proxies `/api` and `/artifacts` to the API.
-
-## Flows
-
-A flow is a declarative JSON file in [`flows/`](./flows): a list of typed steps
-(`goto`, `click`, `fill`, `waitFor`, `evaluate`, `expect`). Secrets are referenced
-by name and injected via Playwright `fill()` — never sent as a prompt, never
-written to the trace:
-
-```json
-{ "type": "fill", "selector": "#password", "value": { "secret": "DEMO_PASSWORD" } }
-```
-
-Shipped flows: `vendor-portal` (passes), `vendor-portal-broken` (selector drift →
-`selector_miss` at step 7), `login-bad-creds` (wrong password → `auth_fail`).
-
-## Failure taxonomy
-
-`selector_miss` · `timeout` · `navigation` · `captcha` · `auth_fail` · `blocked` ·
-`js_error` · `assertion` · `unknown`. Page-level blockers (captcha/anti-bot) take
-precedence over the step-level symptom. `unknown` is surfaced honestly, never a
-catch-all.
-
-## Tests
-
-```bash
-npm test        # 19 tests: classification, timeout bound, secret redaction, store
-npm run typecheck
-```
-
-Tests target the parts that fail in the real world (classification, the timeout
-bound, secret redaction), not the happy path.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `src/types.ts` | shared flow + trace-event schema (the core IP) |
-| `src/firecrawl.ts` | Browser Sandbox session client (create/close, `cdpUrl`) |
-| `src/runner.ts` | drives steps over CDP, captures + classifies failures |
-| `src/classify.ts` | failure taxonomy |
-| `src/store.ts` · `src/server.ts` | SQLite trace store + Express API |
-| `web/` | React trace viewer |
-| `flows/` | example declarative flows |
+| `searchtrace/` | retrieval pipeline (expand, federate, fuse, dedup, rerank, diversify, embeddings) + CLI |
+| `tracewright/` | browser-flow runner, failure classifier, CDP session client + CLIs |
+| `app/` | shared Next.js UI + API over both, with the ⌘K palette |
+| `flows/` | example declarative browser flows |
+| `narratives/` | newcomer→staff guide to Firecrawl + the search direction |
 
 ## Notes & secrets
 
 - `FIRECRAWL_API_KEY` via `.env` only (gitignored). No key in code or history.
-- Each run uses one short Browser Sandbox session (~5–20s). Be mindful of credits.
-- [`NOTES.md`](./NOTES.md) logs gotchas; [`CHANGELOG.md`](./CHANGELOG.md) tracks
-  changes.
+- Embeddings/expansion models are optional and local (Ollama); set `EMBED_MODEL` to
+  use a different one. Everything falls back to a lexical path without them.
+- Each demo run costs Firecrawl credits; the search `thorough` tier fans out more.
+- [`NOTES.md`](./NOTES.md) logs gotchas; [`CHANGELOG.md`](./CHANGELOG.md) tracks changes.
