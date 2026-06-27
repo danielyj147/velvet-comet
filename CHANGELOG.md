@@ -36,6 +36,11 @@ log is chronological and honest rather than versioned.
 - **Docs:** `README.md` (run steps), `ONEPAGER.md` (the weighted deliverable),
   `NARRATIVE.md` (problem→solution arc for the call), `NOTES.md`, `CHANGELOG.md`.
   Original brief preserved as `BRIEF.md`.
+- **`narratives/`** — an 8-part learning narrative set on Firecrawl (history,
+  the web-data problem space + SOTA, the primitives, interaction/CDP, agents &
+  extraction, architecture, and staff-round synthesis). Newcomer-friendly but
+  deep; verifiable facts separated from marketing throughout. Built from
+  multi-source research (history, problem-space/SOTA, architecture from the repo).
 
 ### Changed
 - Extracted `withTimeout` + `StepTimeoutError` into `src/timeout.ts` so the
