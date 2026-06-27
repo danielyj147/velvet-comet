@@ -154,6 +154,16 @@ function SavedItem({ trace, active, example, onClick }: { trace: RunTrace; activ
   );
 }
 
+function exportRun(trace: RunTrace) {
+  const blob = new Blob([JSON.stringify(trace, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `flowtrace-${trace.flowName.replace(/[^a-z0-9]+/gi, "-").slice(0, 40)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function TraceView({ trace, isSeed }: { trace: RunTrace; isSeed: boolean }) {
   const ok = trace.status === "passed";
   const color = ok ? "var(--green)" : "var(--red)";
@@ -170,6 +180,7 @@ function TraceView({ trace, isSeed }: { trace: RunTrace; isSeed: boolean }) {
           </div>
         </div>
         {isSeed && <Badge className="text-[var(--muted)]">saved example</Badge>}
+        <Button size="sm" variant="outline" onClick={() => exportRun(trace)}>Export JSON</Button>
       </div>
       <div className="space-y-2">
         {trace.steps.map((s) => <StepRow key={s.index} step={s} />)}
