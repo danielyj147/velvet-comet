@@ -63,11 +63,17 @@ async function execStep(
   step: Step,
   timeoutMs: number,
   resolveSecret: (name: string) => string | undefined,
+  state: { lastHttpStatus?: number },
 ): Promise<void> {
   switch (step.type) {
-    case "goto":
-      await page.goto(step.url, { timeout: timeoutMs, waitUntil: "load" });
+    case "goto": {
+      // Capture the HTTP status — a general (not per-site) success signal. A 4xx/5xx
+      // means the site refused us; the classifier names it (block / rate-limit / nav).
+      const resp = await page.goto(step.url, { timeout: timeoutMs, waitUntil: "load" });
+      if (resp) state.lastHttpStatus = resp.status();
+      if (resp && resp.status() >= 400) throw new Error(`HTTP ${resp.status()}`);
       return;
+    }
     case "click":
       // Two-step on purpose. First assert the element is actually there/visible
       // (so a missing selector still classifies as selector_miss). Then dispatch
@@ -162,6 +168,7 @@ export async function runFlow(flow: Flow, opts: RunOptions): Promise<RunTrace> {
       await page.goto(flow.startUrl, { timeout: stepTimeout, waitUntil: "load" });
     }
 
+    const state: { lastHttpStatus?: number } = {};
     for (let i = 0; i < flow.steps.length; i++) {
       const step = flow.steps[i]!;
       const event = steps[i]!;
@@ -173,7 +180,7 @@ export async function runFlow(flow: Flow, opts: RunOptions): Promise<RunTrace> {
 
       try {
         await withTimeout(
-          execStep(page, step, budget, resolveSecret),
+          execStep(page, step, budget, resolveSecret, state),
           budget + 1_000, // outer backstop slightly above the action budget
           event.label,
         );
@@ -221,6 +228,12 @@ export async function runFlow(flow: Flow, opts: RunOptions): Promise<RunTrace> {
     }
 
     trace.status = computeStatus(steps);
+
+    // Always capture a final page snapshot — status, url, title, a content snippet,
+    // and a screenshot — so the trace (and its export) shows *what actually came
+    // back*. This is the general, non-per-site answer: report the page, let the user
+    // judge soft-blocks instead of us guessing per site.
+    trace.finalSnapshot = await captureSnapshot(page, opts.runId, artifactsDir, state.lastHttpStatus);
   } catch (err) {
     // Session/connection-level failure (couldn't even start driving).
     trace.status = "failed";
@@ -267,6 +280,50 @@ function safeUrl(page: Page): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Snapshot the final page: status, url, title, a text snippet, screenshot + DOM.
+ *  General and site-agnostic — the export shows what came back so the user can judge. */
+async function captureSnapshot(
+  page: Page,
+  runId: string,
+  artifactsDir: string,
+  httpStatus: number | undefined,
+): Promise<RunTrace["finalSnapshot"]> {
+  const url = safeUrl(page);
+  let title: string | undefined;
+  let text = "";
+  let screenshotPath: string | undefined;
+  let domSnapshotPath: string | undefined;
+  try {
+    title = await page.title();
+    text = await page.evaluate(() => (document.body?.innerText ?? "").trim());
+  } catch {
+    /* page may be gone */
+  }
+  try {
+    const html = await page.content();
+    await writeFile(join(artifactsDir, `final.html`), html);
+    domSnapshotPath = `/artifacts/${runId}/final.html`;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const shot = await captureScreenshot(page);
+    await writeFile(join(artifactsDir, `final.png`), shot);
+    screenshotPath = `/artifacts/${runId}/final.png`;
+  } catch {
+    /* ignore */
+  }
+  return {
+    httpStatus,
+    url,
+    title,
+    charCount: text.length,
+    snippet: text.slice(0, 600),
+    screenshotPath,
+    domSnapshotPath,
+  };
 }
 
 function computeStatus(steps: StepEvent[]): RunStatus {

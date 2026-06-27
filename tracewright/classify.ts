@@ -35,17 +35,6 @@ const BLOCK_MARKERS = [
   "enable javascript and cookies to continue",
 ];
 
-/** Login / auth walls: the page returns 200 but the real content needs sign-in. */
-const LOGIN_MARKERS = [
-  "authwall",
-  "sign in to continue",
-  "log in to continue",
-  "you must be logged in",
-  "you must be a member",
-  "join linkedin",
-  "sign in to see",
-];
-
 export interface ClassifyContext {
   /** Lowercased DOM snapshot at the moment of failure, if we captured one. */
   html?: string;
@@ -70,6 +59,17 @@ export function classify(
   const errMsg = error instanceof Error ? error.message : String(error);
   const html = (ctx.html ?? "").toLowerCase();
 
+  // 0a. HTTP status from a navigation (general, not per-site): 4xx/5xx means the
+  //     site refused the request — 403/451/503 read as a block, others as navigation.
+  const httpMatch = errMsg.match(/\bHTTP (\d{3})\b/);
+  if (httpMatch) {
+    const code = Number(httpMatch[1]);
+    if (code === 429) return { reason: "rate_limit", message: `Rate limited (HTTP 429).` };
+    if (code === 403 || code === 451 || code === 503)
+      return { reason: "blocked", message: `Server refused the request (HTTP ${code}) — likely an access block.` };
+    return { reason: "navigation", message: `Page returned an error status (HTTP ${code}).` };
+  }
+
   // 0. Rate limiting is unambiguous from the error and worth its own bucket.
   if (/\b429\b|rate limit/i.test(errMsg)) {
     return {
@@ -91,13 +91,6 @@ export function classify(
     return {
       reason: "blocked",
       message: `Anti-bot / access block detected ("${blocked}"). Consider a higher proxy tier for this domain.`,
-    };
-  }
-  const login = includesAny(html, LOGIN_MARKERS);
-  if (login) {
-    return {
-      reason: "blocked",
-      message: `Login / auth wall detected ("${login}"). The page loaded but the real content requires sign-in, so it isn't publicly accessible.`,
     };
   }
 

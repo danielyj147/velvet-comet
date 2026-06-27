@@ -143,6 +143,19 @@ export const runTrace = z.object({
   failedStepIndex: z.number().int().nonnegative().optional(),
   steps: z.array(stepEvent),
 });
+/** A site-agnostic snapshot of the final page — what actually came back, so the
+ *  trace/export shows the page rather than us guessing per-site whether it "worked". */
+export interface FinalSnapshot {
+  httpStatus?: number;
+  url?: string;
+  title?: string;
+  charCount: number;
+  snippet: string;
+  screenshotPath?: string;
+  domSnapshotPath?: string;
+}
+
 export type RunTrace = Omit<z.infer<typeof runTrace>, "steps"> & {
   steps: StepEvent[];
+  finalSnapshot?: FinalSnapshot;
 };
