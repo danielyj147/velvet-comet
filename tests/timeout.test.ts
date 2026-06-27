@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { withTimeout, StepTimeoutError } from "../src/timeout.js";
+import { withTimeout, StepTimeoutError } from "../tracewright/timeout.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

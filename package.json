@@ -8,19 +8,21 @@
     "node": ">=20"
   },
   "scripts": {
-    "checkpoint": "tsx scripts/checkpoint.ts",
-    "demo": "tsx scripts/demo.ts",
+    "dev": "next dev -p 8788",
+    "build": "next build",
+    "start": "next start -p 8788",
+    "checkpoint": "tsx tracewright/checkpoint.ts",
+    "flow:demo": "tsx tracewright/demo.ts",
     "search:demo": "tsx searchtrace/demo.ts",
-    "server": "tsx src/server.ts",
-    "web": "vite",
-    "build:web": "vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
+    "cmdk": "^1.1.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "next": "^15.5.19",
     "playwright-core": "^1.49.1",
     "zod": "^3.24.1"
   },

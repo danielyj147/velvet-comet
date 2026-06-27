@@ -8,8 +8,8 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { flow as flowSchema, type RunTrace, type StepEvent } from "../src/types.js";
-import { runFlow } from "../src/runner.js";
+import { flow as flowSchema, type RunTrace, type StepEvent } from "./types.js";
+import { runFlow } from "./runner.js";
 
 const FLOW_PATH = process.argv[2] ?? "flows/vendor-portal-broken.json";
 

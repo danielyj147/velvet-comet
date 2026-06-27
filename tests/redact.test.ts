@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { redactParams } from "../src/runner.js";
-import type { Step } from "../src/types.js";
+import { redactParams } from "../tracewright/runner.js";
+import type { Step } from "../tracewright/types.js";
 
 describe("redactParams — secret values must never enter the trace", () => {
   it("replaces a secret-ref fill value with a placeholder, not the value", () => {

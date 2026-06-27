@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { classify, classifyInfra } from "../src/classify.js";
-import { StepTimeoutError } from "../src/timeout.js";
-import type { Step } from "../src/types.js";
+import { classify, classifyInfra } from "../tracewright/classify.js";
+import { StepTimeoutError } from "../tracewright/timeout.js";
+import type { Step } from "../tracewright/types.js";
 
 const click: Step = { type: "click", selector: "#go" };
 const goto: Step = { type: "goto", url: "https://example.com" };

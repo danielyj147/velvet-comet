@@ -5,12 +5,16 @@
 # deps & build
 node_modules/
 dist/
-web-dist/
+
+# next.js
+.next/
+next-env.d.ts
 
 # runtime data
 *.sqlite
 *.sqlite-*
 data/traces/
+public/artifacts/
 *.log
 
 # os / editor

@@ -9,7 +9,7 @@
  */
 import "dotenv/config";
 import { chromium } from "playwright-core";
-import { createSession, closeSession } from "../src/firecrawl.js";
+import { createSession, closeSession } from "./firecrawl.js";
 
 async function main() {
   console.log("[checkpoint] creating Firecrawl browser session…");
