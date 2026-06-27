@@ -6,7 +6,22 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — unified app + hybrid search (latest)
+### Added — the magical UX (latest)
+- **Tailwind v4 + shadcn-style components** (Button, Badge, Dialog, Checkbox,
+  Slider) on Radix; `cn()` util; dark warm theme tokens.
+- **Holographic cards** (`HoloCard`) — pointer-tracked 3D tilt + spectral sheen
+  (Pokémon-card style) on home and search results.
+- **Ambient bubbles** background — blurred circles drifting up at random sizes/
+  speeds; respects `prefers-reduced-motion`.
+- **Natural onboarding** — a first-visit overlay that fades in after the page
+  settles, with "don't show again" (localStorage); never a hard block.
+- **Show-don't-tell home** — minimal hero, two cards, ⌘K hint; the problem +
+  evidence (ticket stats, role) tucked behind a one-click "Why this exists".
+- **Per-result signal breakdown** in search (BM25 · semantic · consensus bars) so
+  the hybrid ranking is legible at a glance.
+- Restyled ⌘K palette, search, and flows with the new system.
+
+### Added — unified app + hybrid search
 - **One Next.js app over both products** (`app/`): routes `/search` and `/flows`,
   API routes calling the shared libs, and a global **⌘K** command palette (search
   results, jump, toggle settings, navigate). Replaced the two standalone Express

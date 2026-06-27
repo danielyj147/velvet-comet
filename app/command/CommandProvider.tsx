@@ -95,12 +95,26 @@ export function CommandProvider({ children }: { children: React.ReactNode }) {
   return (
     <CommandCtx.Provider value={{ register, openPalette: () => setOpen(true) }}>
       {children}
-      <Command.Dialog open={open} onOpenChange={setOpen} className="cmdk-dialog" label="Command palette">
-        <Command.Input placeholder="Search results, jump, or toggle settings…" autoFocus />
-        <Command.List>
-          <Command.Empty>No matches.</Command.Empty>
+      <Command.Dialog
+        open={open}
+        onOpenChange={setOpen}
+        label="Command palette"
+        overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        contentClassName="fixed left-1/2 top-[14vh] z-50 w-[min(640px,92vw)] -translate-x-1/2 overflow-hidden rounded-xl border bg-[var(--surface)] shadow-2xl"
+      >
+        <Command.Input
+          autoFocus
+          placeholder="Search results, jump, or toggle settings…"
+          className="w-full border-b bg-transparent px-4 py-4 text-[15px] outline-none placeholder:text-[var(--muted)]"
+        />
+        <Command.List className="max-h-[420px] overflow-auto p-2">
+          <Command.Empty className="p-5 text-center text-sm text-[var(--muted)]">No matches.</Command.Empty>
           {groupNames.map((g) => (
-            <Command.Group key={g} heading={g}>
+            <Command.Group
+              key={g}
+              heading={g}
+              className="px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)] [&_[cmdk-group-items]]:mt-1"
+            >
               {all
                 .filter((c) => c.group === g)
                 .map((c) => (
@@ -108,9 +122,10 @@ export function CommandProvider({ children }: { children: React.ReactNode }) {
                     key={c.id}
                     value={`${c.group} ${c.label} ${c.keywords ?? ""}`}
                     onSelect={() => run(c)}
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-[var(--foreground)] data-[selected=true]:bg-[var(--surface-2)]"
                   >
                     <span>{c.label}</span>
-                    {c.hint && <span className="sub">{c.hint}</span>}
+                    {c.hint && <span className="ml-auto text-xs text-[var(--muted)]">{c.hint}</span>}
                   </Command.Item>
                 ))}
             </Command.Group>
