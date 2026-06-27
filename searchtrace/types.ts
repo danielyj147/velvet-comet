@@ -22,6 +22,18 @@ export type Tier = z.infer<typeof tier>;
 export const searchSource = z.enum(["web", "news"]);
 export type SearchSource = z.infer<typeof searchSource>;
 
+/** Query intent — the `intention` field customer #5 asked for. "auto" infers it
+ *  from the query; the rest are explicit. Each intent ranks by a different
+ *  criterion (news=freshness, research=authority, buying=comparison, jobs=recency). */
+export const intention = z.enum(["auto", "general", "news", "research", "buying", "jobs"]);
+export type Intention = z.infer<typeof intention>;
+/** The resolved intent (after auto-inference) — never "auto". */
+export type Intent = Exclude<Intention, "auto">;
+
+/** Result recency → Firecrawl `tbs` time filter. */
+export const recency = z.enum(["any", "day", "week", "month", "year"]);
+export type Recency = z.infer<typeof recency>;
+
 export const searchRequest = z.object({
   query: z.string().min(1),
   tier: tier.default("balanced"),
@@ -34,6 +46,17 @@ export const searchRequest = z.object({
   nicheDomains: z.array(z.string()).default([]),
   /** Per-list result limit. */
   limit: z.number().int().positive().max(50).default(10),
+  /** Query intent for ranking (#5). Drives both retrieval hints and the rerank. */
+  intention: intention.default("auto"),
+  /** Result recency → `tbs` time filter (e.g. only the past week). */
+  recency: recency.default("any"),
+  /** Fetch full content per result (slower, costs credits) — required for maxAge to
+   *  apply and for richer ranking. Off = fast snippets only. */
+  scrapeContent: z.boolean().default(false),
+  /** Max age of cached content, ms (only used when scrapeContent is on). Firecrawl's
+   *  default is 2 days (172800000); 0 forces fresh. This is cache freshness — a
+   *  *scrape* param — distinct from `recency` (result age). */
+  maxAge: z.number().int().nonnegative().default(172800000),
   /** MMR tradeoff: 0.0 = pure relevance, 1.0 = maximum diversity. */
   diversity: z.number().min(0).max(1).default(0.3),
   /** Precision gate: drop candidates whose relevance to the ORIGINAL query is
@@ -44,6 +67,8 @@ export const searchRequest = z.object({
   topK: z.number().int().positive().default(20),
 });
 export type SearchRequest = z.infer<typeof searchRequest>;
+/** Input shape (defaults optional) — what callers pass before `.parse()`. */
+export type SearchRequestInput = z.input<typeof searchRequest>;
 
 // ---------------------------------------------------------------------------
 // Candidates & provenance
@@ -79,6 +104,12 @@ export interface Candidate {
   /** Per-signal breakdown behind `relevance`, each normalized 0..1, for the UI.
    *  dense is null when no embedder was available. */
   signals?: { bm25: number; dense: number | null; consensus: number };
+  /** Intent-aware boost: the criterion that lifted (or didn't lift) this result for
+   *  the resolved intent (e.g. "fresh", "authoritative", "comparison"), 0..1. */
+  intent?: { factor: string; score: number };
+  /** Final ordering score = relevance blended with the intent boost. MMR ranks on
+   *  this; `relevance` stays the pure precision signal the gate filters on. */
+  rankScore?: number;
   /** Whether MMR kept this in the final, diversified list. */
   selected: boolean;
   /** 1-based final rank after diversification (only for selected). */
@@ -129,6 +160,8 @@ export interface Coverage {
 export interface SearchTrace {
   query: string;
   tier: Tier;
+  /** The intent used for ranking, and whether it was inferred (auto) or explicit. */
+  intent: { value: Intent; inferred: boolean };
   expansions: string[];
   lists: string[];
   stages: StageRecord[];

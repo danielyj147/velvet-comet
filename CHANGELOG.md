@@ -6,7 +6,24 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — check-a-page, de-brand, holo readability (latest)
+### Added — intent-aware ranking (#5) + freshness controls (latest)
+- **`intention` field (#5):** auto / news / research / buying / jobs. Changes the
+  ranking criterion (news=freshness, research=authority, buying=comparison,
+  jobs=recency), inferred from the query on `auto`, and steers retrieval (news adds
+  the news source + recency). The intent stage blends an interpretable intent score
+  into the MMR order; results show a per-result intent factor badge. Heuristic
+  classifier — works with no model. This closes the pitch-vs-code gap from the
+  scorecard (rerank was generic; now it's genuinely intent-aware).
+- **Freshness, correctly:** `recency` → Firecrawl `tbs` (result age). `maxAge` →
+  `scrapeOptions` behind a "fetch content" toggle (cached-content freshness — it's a
+  scrape param, not a top-level search param; see NOTES #4). Fetched content also
+  enriches ranking.
+- **Export button** — download any search trace as JSON.
+- **One-pager repositioned:** leads with #5, names `/agent` honestly, frames
+  completeness as a cheaper batch mode, and is straight about #3/#4. Intent unit
+  tests added (32 total).
+
+### Added — check-a-page, de-brand, holo readability
 - **Flows = check any page:** paste a URL → we drive a real browser to it and show
   **pass/fail** with a verdict banner; failures are classified (navigation / timeout
   / blocked / captcha) via the same taxonomy. Ties Flows to scraping and gives a

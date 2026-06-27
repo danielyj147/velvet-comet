@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useCommandRegister, type Cmd } from "../command/CommandProvider";
-import type { SearchTrace, Tier, Candidate } from "../../searchtrace/types";
+import type { SearchTrace, Tier, Candidate, Intention, Recency } from "../../searchtrace/types";
 import { HoloCard } from "@/components/HoloCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +49,10 @@ export default function SearchPage() {
   const [domainsText, setDomainsText] = React.useState("");
   const [diversity, setDiversity] = React.useState(0.3);
   const [minRelevance, setMinRelevance] = React.useState(0);
+  const [intention, setIntention] = React.useState<Intention>("auto");
+  const [recency, setRecency] = React.useState<Recency>("any");
+  const [scrapeContent, setScrapeContent] = React.useState(false);
+  const [maxAge, setMaxAge] = React.useState(172800000);
   const [useAI, setUseAI] = React.useState(false);
   const [ai, setAi] = React.useState<{ allowed: boolean; reason: string }>({ allowed: false, reason: "" });
   const [trace, setTrace] = React.useState<SearchTrace | null>(null);
@@ -81,6 +85,10 @@ export default function SearchPage() {
           sources,
           categories,
           nicheDomains: domainsText.split(",").map((s) => s.trim()).filter(Boolean),
+          intention,
+          recency,
+          scrapeContent,
+          maxAge,
           diversity,
           minRelevance,
           useAI: ai.allowed && useAI,
@@ -95,7 +103,7 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  }, [query, tier, sources, categories, domainsText, diversity, minRelevance, useAI, ai.allowed]);
+  }, [query, tier, sources, categories, domainsText, intention, recency, scrapeContent, maxAge, diversity, minRelevance, useAI, ai.allowed]);
 
   const jumpTo = React.useCallback((rank: number) => {
     document.getElementById(`result-${rank}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -113,6 +121,8 @@ export default function SearchPage() {
       cmds.push({ id: `src-${s}`, group: "Settings", label: `Toggle source: ${s}`, hint: sources.includes(s) ? "on" : "off", perform: () => toggle(sources, setSources, s) });
     for (const c of CATEGORIES)
       cmds.push({ id: `cat-${c}`, group: "Settings", label: `Toggle category: ${c}`, hint: categories.includes(c) ? "on" : "off", perform: () => toggle(categories, setCategories, c) });
+    for (const i of ["auto", "news", "research", "buying", "jobs"] as Intention[])
+      cmds.push({ id: `intent-${i}`, group: "Settings", label: `Intent: ${i}`, hint: intention === i ? "current" : "", perform: () => setIntention(i) });
     for (const d of [0, 0.3, 0.6, 0.9])
       cmds.push({ id: `div-${d}`, group: "Settings", label: `Diversity: ${d}`, hint: diversity === d ? "current" : "", perform: () => setDiversity(d) });
     if (ai.allowed)
@@ -120,7 +130,7 @@ export default function SearchPage() {
     cmds.push({ id: "act-run", group: "Actions", label: "Run search", primary: true, hint: "⇧⏎", perform: () => void run() });
     cmds.push({ id: "act-focus", group: "Actions", label: "Focus query box", perform: () => inputRef.current?.focus() });
     return cmds;
-  }, [trace, tier, sources, categories, diversity, useAI, ai.allowed, run, jumpTo]);
+  }, [trace, tier, sources, categories, diversity, intention, useAI, ai.allowed, run, jumpTo]);
   useCommandRegister(commands, [commands]);
 
   return (
@@ -153,6 +163,22 @@ export default function SearchPage() {
           ))}
         </div>
         <label className="flex items-center gap-2">
+          intent
+          <select value={intention} onChange={(e) => setIntention(e.target.value as Intention)}>
+            {(["auto", "general", "news", "research", "buying", "jobs"] as Intention[]).map((i) => (
+              <option key={i} value={i}>{i}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2" title="Result recency (Firecrawl tbs filter)">
+          recency
+          <select value={recency} onChange={(e) => setRecency(e.target.value as Recency)}>
+            {(["any", "day", "week", "month", "year"] as Recency[]).map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
           diversity <span className="tabular-nums text-[var(--foreground)]">{diversity.toFixed(1)}</span>
           <Slider value={[diversity]} min={0} max={1} step={0.1} onValueChange={([v]) => setDiversity(v!)} />
         </label>
@@ -177,6 +203,21 @@ export default function SearchPage() {
           placeholder="niche domains: trade.com, regional.org"
           className="h-8 w-56 rounded-md border bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-[var(--primary)]"
         />
+        {/* Fetch content → enables maxAge (a scrape param: cached-content freshness,
+            distinct from `recency` which filters result age). */}
+        <span className="flex items-center gap-2" title="Fetch full content per result (slower). Required for maxAge to apply.">
+          <span className={cn(scrapeContent ? "text-[var(--foreground)]" : "text-[var(--muted)]")}>content</span>
+          <Switch checked={scrapeContent} onCheckedChange={setScrapeContent} />
+          {scrapeContent && (
+            <select value={maxAge} onChange={(e) => setMaxAge(Number(e.target.value))} title="maxAge — cached-content freshness">
+              <option value={172800000}>cache 2d</option>
+              <option value={3600000}>cache 1h</option>
+              <option value={86400000}>cache 1d</option>
+              <option value={0}>no cache</option>
+            </select>
+          )}
+        </span>
+
         {/* AI toggle — disabled (with a reason tooltip) when the server can't serve models. */}
         <span
           className="flex items-center gap-2"
@@ -274,11 +315,31 @@ function Meter({ color, label, value, note }: { color: string; label: string; va
   );
 }
 
+function exportTrace(trace: SearchTrace) {
+  const blob = new Blob([JSON.stringify(trace, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `searchtrace-${trace.query.replace(/[^a-z0-9]+/gi, "-").slice(0, 40)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function Results({ trace, flash }: { trace: SearchTrace; flash: number | null }) {
   return (
     <div>
-      <div className="mb-3 text-sm text-[var(--muted)]">
-        {trace.results.length} results · expansions: {trace.expansions.map((e) => `"${e}"`).join(", ")}
+      <div className="mb-3 flex items-center gap-3 text-sm text-[var(--muted)]">
+        <span>{trace.results.length} results</span>
+        <Badge style={{ color: "var(--primary)", borderColor: "var(--primary)" }}>
+          intent: {trace.intent.value}{trace.intent.inferred ? " (auto)" : ""}
+        </Badge>
+        <div className="flex-1" />
+        <Button size="sm" variant="outline" onClick={() => exportTrace(trace)}>
+          Export JSON
+        </Button>
+      </div>
+      <div className="mb-3 text-xs text-[var(--muted)]">
+        expansions: {trace.expansions.map((e) => `"${e}"`).join(", ")}
       </div>
       <div className="space-y-3">
         {trace.results.map((r) => (
@@ -292,9 +353,16 @@ function Results({ trace, flash }: { trace: SearchTrace; flash: number | null })
                 </a>
                 <div className="mt-1 text-xs text-[var(--blue)]">{r.domain}</div>
               </div>
-              <Badge style={{ color: relColor(r.relevance), borderColor: relColor(r.relevance) }}>
-                rel {r.relevance.toFixed(2)}
-              </Badge>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {r.intent && r.intent.score > 0.15 && (
+                  <Badge style={{ color: "var(--primary)", borderColor: "var(--primary)" }} title={`intent boost: ${r.intent.score.toFixed(2)}`}>
+                    {r.intent.factor}
+                  </Badge>
+                )}
+                <Badge style={{ color: relColor(r.relevance), borderColor: relColor(r.relevance) }}>
+                  rel {r.relevance.toFixed(2)}
+                </Badge>
+              </div>
             </div>
             <Signals c={r} />
             <div className="mt-2 text-xs text-[var(--muted)]">{r.why}</div>

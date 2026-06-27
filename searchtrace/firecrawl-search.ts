@@ -16,6 +16,14 @@ export interface RawItem {
   position: number;
 }
 
+/** Passed to /v2/search.scrapeOptions when "fetch content" is on — this is where
+ *  maxAge (content-cache freshness) legitimately lives (it's a scrape param, not a
+ *  top-level search param). */
+export interface ScrapeOptions {
+  formats: string[];
+  maxAge?: number;
+}
+
 /** A single labelled ranked list, e.g. list "domain:trade.example" for query Q. */
 export interface RankedList {
   query: string;
@@ -28,6 +36,10 @@ interface SearchCallOptions {
   categories?: string[];
   includeDomains?: string[];
   limit?: number;
+  /** Firecrawl time filter, e.g. "qdr:w" for the past week (result recency). */
+  tbs?: string;
+  /** When set, fetch full content per result (maxAge lives in here). */
+  scrapeOptions?: ScrapeOptions;
   timeoutMs?: number;
 }
 
@@ -49,6 +61,8 @@ async function searchCall(query: string, opts: SearchCallOptions): Promise<any> 
   if (rest.sources) body.sources = rest.sources;
   if (rest.categories?.length) body.categories = rest.categories;
   if (rest.includeDomains?.length) body.includeDomains = rest.includeDomains;
+  if (rest.tbs) body.tbs = rest.tbs;
+  if (rest.scrapeOptions) body.scrapeOptions = rest.scrapeOptions;
 
   let lastErr: unknown;
   for (let attempt = 0; attempt <= 3; attempt++) {
@@ -101,7 +115,9 @@ function splitBySource(query: string, data: any, listPrefix = ""): RankedList[] 
         .map((it: any, i: number) => ({
           url: it.url,
           title: it.title ?? "",
-          description: it.description ?? "",
+          // When content was fetched, use a richer slice of the markdown as the
+          // text the ranker sees; otherwise the snippet description.
+          description: it.markdown ? String(it.markdown).slice(0, 1200) : (it.description ?? ""),
           position: it.position ?? i + 1,
         })),
     });
@@ -121,13 +137,19 @@ export async function federateQuery(
     categories: string[];
     nicheDomains: string[];
     limit: number;
+    tbs?: string;
+    /** When set, fetch full content per result with this cache freshness (ms). */
+    contentMaxAge?: number;
   },
 ): Promise<RankedList[]> {
   const tasks: Promise<RankedList[]>[] = [];
+  const scrapeOptions: ScrapeOptions | undefined =
+    opts.contentMaxAge != null ? { formats: ["markdown"], maxAge: opts.contentMaxAge } : undefined;
+  const common = { limit: opts.limit, tbs: opts.tbs, scrapeOptions };
 
   // Base sources (web/news) in one call; split the response per source.
   tasks.push(
-    searchCall(query, { sources: opts.sources, limit: opts.limit })
+    searchCall(query, { sources: opts.sources, ...common })
       .then((data) => splitBySource(query, data))
       .catch((e) => {
         console.warn(`[search] base list failed (${query}):`, (e as Error).message);
@@ -138,7 +160,7 @@ export async function federateQuery(
   // Each category as its own list.
   for (const cat of opts.categories) {
     tasks.push(
-      searchCall(query, { categories: [cat], limit: opts.limit })
+      searchCall(query, { categories: [cat], ...common })
         .then((data) => splitBySource(query, data, `category:${cat}`))
         .catch((e) => {
           console.warn(`[search] category ${cat} failed:`, (e as Error).message);
@@ -150,7 +172,7 @@ export async function federateQuery(
   // Each niche domain searched explicitly — this is what pulls in the long tail.
   for (const domain of opts.nicheDomains) {
     tasks.push(
-      searchCall(query, { includeDomains: [domain], limit: opts.limit })
+      searchCall(query, { includeDomains: [domain], ...common })
         .then((data) =>
           splitBySource(query, data, `domain`).map((l) => ({ ...l, list: `domain:${domain}` })),
         )

@@ -31,8 +31,8 @@ export function diversify(
   semantics?: Semantics,
 ): Candidate[] {
   if (candidates.length === 0) return [];
-  // Rank on relevance (the precision signal), fall back to RRF if unscored.
-  const relevanceOf = (c: Candidate) => (c.relevance > 0 ? c.relevance : c.rrfScore);
+  // Rank on the intent-aware rankScore when present, else relevance, else RRF.
+  const relevanceOf = (c: Candidate) => c.rankScore ?? (c.relevance > 0 ? c.relevance : c.rrfScore);
   const maxRel = Math.max(...candidates.map(relevanceOf)) || 1;
   const tokens = new Map(candidates.map((c) => [c.canonicalUrl, tokenize(`${c.title} ${c.description}`)]));
   const rrfRank = new Map(candidates.map((c, i) => [c.canonicalUrl, i + 1]));

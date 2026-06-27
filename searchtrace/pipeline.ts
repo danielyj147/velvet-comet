@@ -1,6 +1,6 @@
 import {
   searchRequest,
-  type SearchRequest,
+  type SearchRequestInput,
   type SearchTrace,
   type StageRecord,
   type Candidate,
@@ -14,7 +14,20 @@ import { dedup } from "./dedup.js";
 import { scoreRelevance, precisionGate } from "./rerank.js";
 import { diversify } from "./diversify.js";
 import { getEmbedder } from "./embeddings.js";
+import { classifyIntent, intentScore } from "./intent.js";
+import type { Intent, Recency } from "./types.js";
 import { log } from "./log.js";
+
+/** How much the intent boost reweights the final order vs pure relevance. */
+const INTENT_WEIGHT = 0.35;
+
+const TBS: Record<Recency, string | undefined> = {
+  any: undefined,
+  day: "qdr:d",
+  week: "qdr:w",
+  month: "qdr:m",
+  year: "qdr:y",
+};
 
 /**
  * The retrieval pipeline, and the trace it emits:
@@ -25,7 +38,7 @@ import { log } from "./log.js";
  * recall *and* a reason to trust it — is the whole product.
  */
 export async function runSearch(
-  input: SearchRequest,
+  input: SearchRequestInput,
   opts: { expander?: Expander; useModels?: boolean } = {},
 ): Promise<SearchTrace> {
   const req = searchRequest.parse(input);
@@ -56,6 +69,17 @@ export async function runSearch(
     return result;
   };
 
+  // 0. Resolve intent (#5). It drives both retrieval (which sources/recency) and
+  //    ranking (which criterion). "auto" infers it from the query.
+  const intent: Intent = req.intention === "auto" ? classifyIntent(req.query) : req.intention;
+  const inferred = req.intention === "auto";
+  // Intent nudges retrieval without overriding explicit choices: news → add the
+  // news source + default to recent; research → add the research category.
+  const sources = intent === "news" && !req.sources.includes("news") ? [...req.sources, "news"] : req.sources;
+  const categories = intent === "research" && !req.categories.includes("research") ? [...req.categories, "research"] : req.categories;
+  const tbs = TBS[req.recency] ?? (intent === "news" ? "qdr:w" : undefined);
+  log("search.intent", { intent, inferred, tbs: tbs ?? "none" });
+
   // 1. Expand the query (wider, not just deeper).
   const expander = opts.expander ?? (useModels ? undefined : heuristicExpander);
   const expansions = await stage(
@@ -74,10 +98,12 @@ export async function runSearch(
       const perQuery = await Promise.all(
         expansions.map((q) =>
           federateQuery(q, {
-            sources: req.sources,
-            categories: req.categories,
+            sources,
+            categories,
             nicheDomains: req.nicheDomains,
             limit: req.limit,
+            tbs,
+            contentMaxAge: req.scrapeContent ? req.maxAge : undefined,
           }),
         ),
       );
@@ -142,7 +168,27 @@ export async function runSearch(
     () => `dropped ${droppedLowRelevance} below minRelevance=${req.minRelevance}`,
   );
 
-  // 7. Diversify with MMR down to topK (ranks on relevance, spreads by domain).
+  // 6b. Intent rerank (#5): blend the intent criterion into the ordering score.
+  //     relevance stays the pure precision signal (the gate used it); rankScore is
+  //     what MMR orders by, so news ranks fresh, buying ranks comparison pages, etc.
+  await stage(
+    `intent (${intent})`,
+    gated.length,
+    () => {
+      for (const c of gated) {
+        const { score, factor } = intentScore(intent, c);
+        c.intent = intent === "general" ? undefined : { factor, score };
+        c.rankScore =
+          intent === "general" ? c.relevance : (1 - INTENT_WEIGHT) * c.relevance + INTENT_WEIGHT * score;
+      }
+      gated.sort((a, b) => (b.rankScore ?? b.relevance) - (a.rankScore ?? a.relevance));
+      return gated;
+    },
+    (c) => c.length,
+    () => (intent === "general" ? "no intent boost" : `ranked by ${intent}`),
+  );
+
+  // 7. Diversify with MMR down to topK (ranks on rankScore, spreads by domain).
   const results = await stage(
     "diversify (MMR)",
     gated.length,
@@ -165,6 +211,7 @@ export async function runSearch(
   });
 
   return {
+    intent: { value: intent, inferred },
     query: req.query,
     tier: req.tier,
     expansions,

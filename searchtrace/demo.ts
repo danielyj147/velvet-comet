@@ -9,7 +9,7 @@
  */
 import "dotenv/config";
 import { runSearch } from "./pipeline.js";
-import type { SearchSource, Tier } from "./types.js";
+import type { Intention, Recency, SearchSource, Tier } from "./types.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -23,6 +23,8 @@ const minRelevance = arg("--minRelevance") ? Number(arg("--minRelevance")) : 0;
 const domains = arg("--domains")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
 const sources = (arg("--sources")?.split(",") as SearchSource[]) ?? ["web"];
 const categories = arg("--categories")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+const intention = (arg("--intention") as Intention) ?? "auto";
+const recency = (arg("--recency") as Recency) ?? "any";
 
 const bar = (n: number, max: number, width = 24) =>
   "█".repeat(Math.round((n / Math.max(max, 1)) * width)).padEnd(width, "·");
@@ -38,12 +40,19 @@ async function main() {
       sources,
       categories,
       nicheDomains: domains,
+      intention,
+      recency,
+      ...(arg("--maxAge") ? { maxAge: Number(arg("--maxAge")) } : {}),
       diversity,
       minRelevance,
       topK: Number(arg("--topK") ?? 15),
       limit: Number(arg("--limit") ?? 10),
     },
     { useModels },
+  );
+
+  console.log(
+    `intent: ${trace.intent.value}${trace.intent.inferred ? " (inferred)" : ""}`,
   );
 
   console.log("PIPELINE");
