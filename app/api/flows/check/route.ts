@@ -33,14 +33,28 @@ export async function POST(req: NextRequest) {
     steps: [
       { type: "goto", url, label: `Load ${url}` },
       {
+        type: "expect",
+        selector: "body",
+        timeoutMs: 8000,
+        label: "Confirm the real page loaded (not a wall or empty)",
+      },
+      {
         type: "evaluate",
-        label: "Confirm the page returned content",
-        // Lenient on purpose: only fail a TRULY empty response (no text and no
-        // title). Combined with the classifier's DOM check (captcha/block markers
-        // take precedence), this catches blocks/dead pages without false-failing
-        // legitimately thin pages.
+        label: "Confirm the page returned usable content",
+        // A page that returns 200 isn't necessarily a success. Fail soft-blocks too:
+        // captcha/anti-bot challenges, login/auth walls (the page exists but the
+        // content requires sign-in — e.g. LinkedIn), and genuinely empty responses.
+        // The classifier reads the captured DOM and names the reason (blocked/captcha).
         script:
-          "(() => { const t = (document.body && document.body.innerText || '').trim(); const title = (document.title || '').trim(); if (t.length === 0 && title.length === 0) throw new Error('page returned no content'); })()",
+          "(() => {" +
+          "  const url = location.href.toLowerCase();" +
+          "  const body = ((document.body && document.body.innerText) || '').toLowerCase();" +
+          "  const html = document.documentElement.innerHTML.toLowerCase();" +
+          "  if (/captcha|recaptcha|hcaptcha|verify you are human|are you a robot|unusual traffic|cf-challenge|cf-turnstile/.test(html)) throw new Error('bot/captcha challenge detected');" +
+          "  if (/\\/(authwall|checkpoint|uas\\/login)/.test(url) || /sign in to continue|log in to continue|you must be (logged in|a member)|join linkedin|please log in to|sign in to see|to view this/.test(body)) throw new Error('login / auth wall — content requires sign-in');" +
+          "  const t = body.trim(); const title = (document.title || '').trim();" +
+          "  if (t.length === 0 && title.length === 0) throw new Error('page returned no content');" +
+          "})()",
       },
     ],
   });

@@ -35,6 +35,17 @@ const BLOCK_MARKERS = [
   "enable javascript and cookies to continue",
 ];
 
+/** Login / auth walls: the page returns 200 but the real content needs sign-in. */
+const LOGIN_MARKERS = [
+  "authwall",
+  "sign in to continue",
+  "log in to continue",
+  "you must be logged in",
+  "you must be a member",
+  "join linkedin",
+  "sign in to see",
+];
+
 export interface ClassifyContext {
   /** Lowercased DOM snapshot at the moment of failure, if we captured one. */
   html?: string;
@@ -80,6 +91,13 @@ export function classify(
     return {
       reason: "blocked",
       message: `Anti-bot / access block detected ("${blocked}"). Consider a higher proxy tier for this domain.`,
+    };
+  }
+  const login = includesAny(html, LOGIN_MARKERS);
+  if (login) {
+    return {
+      reason: "blocked",
+      message: `Login / auth wall detected ("${login}"). The page loaded but the real content requires sign-in, so it isn't publicly accessible.`,
     };
   }
 
