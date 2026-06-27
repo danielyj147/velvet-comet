@@ -1,5 +1,6 @@
-import type { Candidate } from "./types.js";
+import type { Candidate, Semantics } from "./types.js";
 import { tokenize, jaccard } from "./text.js";
+import { cosine } from "./embeddings.js";
 
 /**
  * Relevance scoring (the precision stage) and the precision gate.
@@ -24,15 +25,26 @@ import { tokenize, jaccard } from "./text.js";
 const CONSENSUS_WEIGHT = 0.6;
 const LEXICAL_WEIGHT = 0.4;
 
-export function scoreRelevance(query: string, candidates: Candidate[]): Candidate[] {
+export function scoreRelevance(
+  query: string,
+  candidates: Candidate[],
+  semantics?: Semantics,
+): Candidate[] {
   if (candidates.length === 0) return candidates;
   const queryTok = tokenize(query);
   const maxRrf = Math.max(...candidates.map((c) => c.rrfScore)) || 1;
+  const queryVec = semantics?.queryVec;
 
   for (const c of candidates) {
     const consensus = c.rrfScore / maxRrf;
-    const lexical = jaccard(queryTok, tokenize(`${c.title} ${c.description}`));
-    c.relevance = CONSENSUS_WEIGHT * consensus + LEXICAL_WEIGHT * lexical;
+    const candVec = semantics?.vectorOf(c.canonicalUrl);
+    // Semantic similarity when available (catches relevant-but-differently-worded
+    // pages); lexical query-term coverage otherwise.
+    const topical =
+      queryVec && candVec
+        ? Math.max(0, cosine(queryVec, candVec))
+        : jaccard(queryTok, tokenize(`${c.title} ${c.description}`));
+    c.relevance = CONSENSUS_WEIGHT * consensus + LEXICAL_WEIGHT * topical;
   }
   return candidates.sort((a, b) => b.relevance - a.relevance);
 }

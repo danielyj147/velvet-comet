@@ -5,6 +5,7 @@ import {
   type StageRecord,
   type Candidate,
   type Coverage,
+  type Semantics,
 } from "./types.js";
 import { expand, type Expander } from "./expand.js";
 import { federateQuery } from "./firecrawl-search.js";
@@ -12,6 +13,7 @@ import { rrfFuse } from "./fuse.js";
 import { dedup } from "./dedup.js";
 import { scoreRelevance, precisionGate } from "./rerank.js";
 import { diversify } from "./diversify.js";
+import { getEmbedder } from "./embeddings.js";
 
 /**
  * The retrieval pipeline, and the trace it emits:
@@ -88,11 +90,21 @@ export async function runSearch(
     (c) => `${c.length} unique URLs after canonicalization`,
   );
 
-  // 4. Collapse content near-duplicates (syndication).
+  // 3b. Embed query + candidates (semantic upgrade for the stages below). Falls
+  //     back to lexical automatically if Ollama isn't running.
+  const semantics = await stage(
+    "embed",
+    fused.length,
+    () => embedCandidates(req.query, fused),
+    (s) => (s ? fused.length : 0),
+    (s) => (s ? `vectors via ${s.model}` : "lexical fallback (no embedder)"),
+  );
+
+  // 4. Collapse content near-duplicates (syndication; semantic when embedded).
   const deduped = await stage(
     "dedup",
     fused.length,
-    () => dedup(fused),
+    () => dedup(fused, semantics ?? undefined),
     (c) => c.length,
     (c) => `${fused.length - c.length} near-duplicate(s) collapsed`,
   );
@@ -101,7 +113,7 @@ export async function runSearch(
   const scored = await stage(
     "rerank (relevance)",
     deduped.length,
-    () => scoreRelevance(req.query, deduped),
+    () => scoreRelevance(req.query, deduped, semantics ?? undefined),
     (c) => c.length,
     (c) => `mean relevance ${mean(c.map((x) => x.relevance)).toFixed(2)}`,
   );
@@ -124,7 +136,7 @@ export async function runSearch(
   const results = await stage(
     "diversify (MMR)",
     gated.length,
-    () => diversify(gated, req.diversity, req.topK),
+    () => diversify(gated, req.diversity, req.topK, semantics ?? undefined),
     (c) => c.length,
     (c) => `${c.length} results, diversity=${req.diversity}`,
   );
@@ -145,6 +157,27 @@ export async function runSearch(
     endedAt,
     hints,
   };
+}
+
+/** Embed the query and every candidate once; return a Semantics lookup, or null
+ *  if no embedder is available (stages then use their lexical fallback). */
+async function embedCandidates(query: string, candidates: Candidate[]): Promise<Semantics | null> {
+  const embedder = await getEmbedder();
+  if (!embedder || candidates.length === 0) return null;
+  try {
+    const texts = candidates.map((c) => `${c.title}. ${c.description}`.slice(0, 2000));
+    const [queryVec, ...vecs] = await embedder.embed([query, ...texts]);
+    const byUrl = new Map<string, number[]>();
+    candidates.forEach((c, i) => byUrl.set(c.canonicalUrl, vecs[i]!));
+    return {
+      model: embedder.model,
+      queryVec,
+      vectorOf: (url) => byUrl.get(url),
+    };
+  } catch (err) {
+    console.warn("[embeddings] embedding failed; lexical fallback:", (err as Error).message);
+    return null;
+  }
 }
 
 function computeCoverage(

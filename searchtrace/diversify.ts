@@ -1,5 +1,6 @@
-import type { Candidate } from "./types.js";
+import type { Candidate, Semantics } from "./types.js";
 import { tokenize, jaccard } from "./text.js";
+import { cosine } from "./embeddings.js";
 
 /**
  * Maximal Marginal Relevance (MMR). Build the final list greedily, each pick
@@ -10,14 +11,25 @@ import { tokenize, jaccard } from "./text.js";
  * thing the analyst actually wants) is what gets rewarded.
  */
 
-/** Similarity used by MMR: strong same-domain signal, plus lexical overlap. */
-function similarity(a: Candidate, aTok: Set<string>, b: Candidate, bTok: Set<string>): number {
-  const lexical = jaccard(aTok, bTok);
-  const sameDomain = a.domain === b.domain ? 0.7 : 0;
-  return Math.max(lexical, sameDomain);
+/** Content similarity for MMR: cosine when vectors exist, lexical otherwise. */
+function contentSim(a: Candidate, aTok: Set<string>, b: Candidate, bTok: Set<string>, semantics?: Semantics): number {
+  const av = semantics?.vectorOf(a.canonicalUrl);
+  const bv = semantics?.vectorOf(b.canonicalUrl);
+  return av && bv ? Math.max(0, cosine(av, bv)) : jaccard(aTok, bTok);
 }
 
-export function diversify(candidates: Candidate[], diversity: number, topK: number): Candidate[] {
+/** MMR similarity: strong same-domain signal, plus content similarity. */
+function similarity(a: Candidate, aTok: Set<string>, b: Candidate, bTok: Set<string>, semantics?: Semantics): number {
+  const sameDomain = a.domain === b.domain ? 0.7 : 0;
+  return Math.max(contentSim(a, aTok, b, bTok, semantics), sameDomain);
+}
+
+export function diversify(
+  candidates: Candidate[],
+  diversity: number,
+  topK: number,
+  semantics?: Semantics,
+): Candidate[] {
   if (candidates.length === 0) return [];
   // Rank on relevance (the precision signal), fall back to RRF if unscored.
   const relevanceOf = (c: Candidate) => (c.relevance > 0 ? c.relevance : c.rrfScore);
@@ -42,6 +54,7 @@ export function diversify(candidates: Candidate[], diversity: number, topK: numb
           tokens.get(cand.canonicalUrl)!,
           s,
           tokens.get(s.canonicalUrl)!,
+          semantics,
         );
         if (sim > maxSim) maxSim = sim;
       }

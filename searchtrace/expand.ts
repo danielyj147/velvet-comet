@@ -13,7 +13,7 @@ import type { Tier } from "./types.js";
 export type Expander = (query: string, max: number) => Promise<string[]>;
 
 /** How many query variants each tier uses. fast = raw only (serves #4). */
-export function expansionBudget(tier: Tier): number {
+function expansionBudget(tier: Tier): number {
   return tier === "fast" ? 1 : tier === "balanced" ? 3 : 6;
 }
 

@@ -23,7 +23,7 @@ export interface RankedList {
   items: RawItem[];
 }
 
-export interface SearchCallOptions {
+interface SearchCallOptions {
   sources?: string[];
   categories?: string[];
   includeDomains?: string[];

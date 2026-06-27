@@ -88,6 +88,14 @@ export interface Candidate {
 // Trace
 // ---------------------------------------------------------------------------
 
+/** Optional semantic context: query vector + per-candidate vectors. When present,
+ *  the dedup/rerank/diversify stages use cosine similarity instead of lexical. */
+export interface Semantics {
+  model: string;
+  queryVec?: number[];
+  vectorOf(canonicalUrl: string): number[] | undefined;
+}
+
 export interface StageRecord {
   name: string;
   countIn: number;
