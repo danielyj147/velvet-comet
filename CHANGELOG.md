@@ -6,7 +6,22 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — saved runs, search failures, palette + holo polish (latest)
+### Added — check-a-page, de-brand, holo readability (latest)
+- **Flows = check any page:** paste a URL → we drive a real browser to it and show
+  **pass/fail** with a verdict banner; failures are classified (navigation / timeout
+  / blocked / captcha) via the same taxonomy. Ties Flows to scraping and gives a
+  live failure demo. (`/api/flows/check`; lenient content rule so thin-but-valid
+  pages don't false-fail.)
+- **De-branded for public hosting:** product renamed **Spectra** with a custom
+  spectrum favicon (`app/icon.svg`); the live UI no longer carries the Firecrawl
+  name or internal ticket numbers (those stay in the repo docs / submission).
+- **Holographic cards rewritten for readability:** effect layers sit *behind* the
+  content (text always crisp); faithful pointer-driven foil + glare (original
+  implementation of the technique, not lifted source); tilt made more dramatic (16°).
+- **`narratives/09-the-eleven-evaluated.md`** — a scorecard of all 11 asks
+  (duplication risk, leverage, effort, verdict, honest coverage).
+
+### Added — saved runs, search failures, palette + holo polish
 - **Flows show a saved failure by default** — a committed example run
   (`tracewright/seed-run.json` + screenshot in `public/seed/`) renders instantly,
   so a reviewer sees the exact failed step without a live, credit-costing run.

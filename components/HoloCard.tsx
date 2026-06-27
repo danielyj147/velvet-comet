@@ -24,8 +24,11 @@ export function HoloCard({
     const py = (e.clientY - r.top) / r.height; // 0..1
     el.style.setProperty("--mx", `${px * 100}%`);
     el.style.setProperty("--my", `${py * 100}%`);
-    el.style.setProperty("--rx", `${(px - 0.5) * 10}deg`); // tilt around Y
-    el.style.setProperty("--ry", `${(0.5 - py) * 10}deg`); // tilt around X
+    el.style.setProperty("--rx", `${(px - 0.5) * 16}deg`); // tilt around Y
+    el.style.setProperty("--ry", `${(0.5 - py) * 16}deg`); // tilt around X
+    // foil drifts further than the pointer so the spectrum sweeps as you move
+    el.style.setProperty("--bg-x", `${20 + px * 60}%`);
+    el.style.setProperty("--bg-y", `${20 + py * 60}%`);
     el.style.setProperty("--holo-opacity", "1");
   };
 

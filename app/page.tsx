@@ -9,7 +9,7 @@ export default function Home() {
         See <span className="text-[var(--primary)]">why</span>, not just what.
       </h1>
       <p className="mx-auto mt-4 max-w-xl text-center text-[var(--muted)]">
-        Web data from Firecrawl — with the reasoning made visible. Pick a surface.
+        Web data, with the reasoning made visible. Two surfaces — pick one.
       </p>
 
       <div className="mt-12 grid gap-5 sm:grid-cols-2">
@@ -47,22 +47,20 @@ export default function Home() {
         jump, or toggle settings.
       </p>
 
-      {/* Evidence is one click away — clean by default, defensible on demand. */}
+      {/* Kept generic for public hosting — the detailed, sourced rationale lives in
+          the repo docs (the take-home submission), not the live site. */}
       <details className="mx-auto mt-10 max-w-2xl rounded-xl border bg-[var(--surface)]/60 p-4 text-sm text-[var(--muted)]">
         <summary className="cursor-pointer font-medium text-[var(--foreground)]">
           Why this exists
         </summary>
         <p className="mt-3">
-          Firecrawl&apos;s #1 support category is <strong>&ldquo;error confusion / debugging
-          help&rdquo;</strong> (214 of ~565 tickets, 90 days) — people can&apos;t tell <em>why</em>
-          something failed or under-delivered. <strong>Flows</strong> answers that for browser
-          automations (customer asks #7, #11).
+          Web-data APIs hand back opaque results: one ranked list, or one
+          <code> SCRAPE_FAILED</code> with no idea which of fourteen steps broke.
         </p>
         <p className="mt-2">
-          And for the <strong>Search</strong> role specifically: customers want completeness they
-          can trust (#1), intent-aware ranking (#5), and a fast snippets mode (#4). <strong>Search</strong>
-          makes retrieval — recall, precision, and ranking — observable and tunable, instead of one
-          opaque list.
+          <strong>Search</strong> makes retrieval — recall, precision, and ranking — observable and
+          tunable instead of a black-box list. <strong>Flows</strong> makes a browser automation&apos;s
+          failure legible: which step, why, and the page at that moment.
         </p>
       </details>
     </main>

@@ -24,6 +24,8 @@ export default function FlowsPage() {
   const [viewing, setViewing] = React.useState<RunTrace | null>(null);
   const [running, setRunning] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [checkUrl, setCheckUrl] = React.useState("");
+  const [checking, setChecking] = React.useState(false);
 
   const loadRuns = React.useCallback(async () => {
     const { seed, runs } = await fetch("/api/flows/runs").then((r) => r.json());
@@ -53,6 +55,23 @@ export default function FlowsPage() {
       setRunning(null);
     }
   }, [loadRuns]);
+
+  const check = React.useCallback(async () => {
+    if (!checkUrl.trim()) return;
+    setChecking(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/flows/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: checkUrl.trim() }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "check failed");
+      setViewing(json as RunTrace);
+      loadRuns().catch(() => {});
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  }, [checkUrl, loadRuns]);
 
   const commands = React.useMemo<Cmd[]>(() => {
     const cmds: Cmd[] = flows.map((f) => ({ id: `run-${f.name}`, group: "Actions", label: `Run flow: ${f.name}`, hint: `${f.stepCount} steps`, perform: () => void run(f.name) }));
@@ -98,9 +117,23 @@ export default function FlowsPage() {
         </aside>
 
         <div>
+          {/* Check any page: paste a URL → pass/fail + the reason if it fails. */}
+          <div className="mb-4 flex gap-2">
+            <input
+              value={checkUrl}
+              onChange={(e) => setCheckUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && check()}
+              placeholder="Check any page — paste a URL (e.g. example.com)"
+              className="h-10 flex-1 rounded-lg border bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)]"
+            />
+            <Button onClick={check} disabled={checking || !!running}>
+              {checking ? "Checking…" : "Check"}
+            </Button>
+          </div>
+
           {error && <div className="mb-3 rounded-lg border border-[var(--red)] bg-[var(--surface)] p-3 text-sm text-[var(--red)]">Error: {error}</div>}
           {!viewing ? (
-            <div className="mt-16 text-center text-[var(--muted)]">Select a saved run, or run a flow live.</div>
+            <div className="mt-16 text-center text-[var(--muted)]">Check a page above, pick a saved run, or run a flow live.</div>
           ) : (
             <TraceView trace={viewing} isSeed={viewing === seed} />
           )}
@@ -122,13 +155,21 @@ function SavedItem({ trace, active, example, onClick }: { trace: RunTrace; activ
 }
 
 function TraceView({ trace, isSeed }: { trace: RunTrace; isSeed: boolean }) {
+  const ok = trace.status === "passed";
+  const color = ok ? "var(--green)" : "var(--red)";
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h3 className="text-lg font-semibold">{trace.flowName}</h3>
-        <Badge style={{ color: STATUS_COLOR[trace.status], borderColor: STATUS_COLOR[trace.status] }}>{trace.status}</Badge>
-        {trace.failedStepIndex != null && <span className="text-xs text-[var(--red)]">failed at step {trace.failedStepIndex}</span>}
-        {isSeed && <span className="text-xs text-[var(--muted)]">· saved example (no run needed)</span>}
+      {/* Unmissable verdict — the answer to "did this page fail or succeed?" */}
+      <div className="mb-4 flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: color, background: `color-mix(in oklab, ${color} 8%, transparent)` }}>
+        <span className="text-lg" style={{ color }}>{ok ? "✔" : "✗"}</span>
+        <div className="flex-1">
+          <div className="font-semibold" style={{ color }}>{ok ? "Success" : "Failed"}</div>
+          <div className="text-xs text-[var(--muted)]">
+            {trace.flowName}
+            {trace.failedStepIndex != null && ` · failed at step ${trace.failedStepIndex} (${trace.steps[trace.failedStepIndex]?.failure?.reason})`}
+          </div>
+        </div>
+        {isSeed && <Badge className="text-[var(--muted)]">saved example</Badge>}
       </div>
       <div className="space-y-2">
         {trace.steps.map((s) => <StepRow key={s.index} step={s} />)}

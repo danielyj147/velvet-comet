@@ -73,61 +73,83 @@
   will-change: transform, opacity;
 }
 
-/* ---------- holographic card: subtle glare + glitter (not a rainbow) ---------- */
+/* ---------- holographic card (pointer-driven foil + glare) ----------
+   The effect layers sit BEHIND the content (content is z-1) so text stays fully
+   readable — the foil shimmers in the padding and around the text, never over it.
+   Variables fed by HoloCard: --mx/--my (pointer %), --rx/--ry (tilt),
+   --bg-x/--bg-y (foil drift), --holo-opacity (0 at rest, 1 while hovered). */
 .holo {
   position: relative;
+  isolation: isolate;
   transform-style: preserve-3d;
-  transform: perspective(900px) rotateX(var(--ry, 0deg)) rotateY(var(--rx, 0deg));
-  transition: transform 0.15s ease-out, box-shadow 0.2s ease-out;
+  transform: perspective(1000px) rotateX(var(--ry, 0deg)) rotateY(var(--rx, 0deg));
+  transition: transform 0.18s ease-out, box-shadow 0.2s ease-out;
+}
+.holo > * {
+  position: relative;
+  z-index: 2; /* content above both effect layers */
 }
 .holo::before,
 .holo::after {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 1;
   border-radius: inherit;
   pointer-events: none;
   opacity: var(--holo-opacity, 0);
-  transition: opacity 0.25s ease-out;
+  transition: opacity 0.3s ease-out;
 }
-/* soft glare following the pointer (gentle) */
+/* holographic foil: a diagonal spectral band + a fine sparkle grid, drifting with
+   the pointer. color-dodge over the dark card reads as iridescent metal. */
 .holo::before {
+  background-image:
+    repeating-linear-gradient(
+      110deg,
+      rgba(255, 119, 115, 0.5) 0%,
+      rgba(255, 237, 95, 0.5) 12%,
+      rgba(168, 255, 95, 0.5) 24%,
+      rgba(131, 255, 247, 0.5) 36%,
+      rgba(120, 148, 255, 0.5) 48%,
+      rgba(216, 117, 255, 0.5) 60%,
+      rgba(255, 119, 115, 0.5) 72%
+    ),
+    repeating-linear-gradient(
+      133deg,
+      rgba(0, 0, 0, 0) 0,
+      rgba(255, 255, 255, 0.28) 2px,
+      rgba(0, 0, 0, 0) 3px,
+      rgba(0, 0, 0, 0) 6px
+    );
+  background-size: 300% 300%, 200% 200%;
+  background-position: var(--bg-x, 50%) var(--bg-y, 50%), var(--bg-x, 50%) var(--bg-y, 50%);
+  background-blend-mode: overlay;
+  mix-blend-mode: color-dodge;
+  filter: brightness(0.7) contrast(1.5) saturate(1.1);
+}
+/* glare: a bright spot that tracks the pointer, kept gentle so text stays legible */
+.holo::after {
   background: radial-gradient(
     circle at var(--mx, 50%) var(--my, 50%),
-    rgba(255, 255, 255, 0.18),
+    rgba(255, 255, 255, 0.32),
+    rgba(255, 255, 255, 0.08) 18%,
     rgba(255, 255, 255, 0) 45%
   );
-  mix-blend-mode: screen;
-}
-/* glitter: a fine field of tiny sparkles, revealed only around the pointer */
-.holo::after {
-  background-image:
-    radial-gradient(rgba(255, 255, 255, 0.9) 1px, transparent 1.6px),
-    radial-gradient(rgba(180, 220, 255, 0.7) 1px, transparent 1.6px);
-  background-size: 9px 9px, 13px 13px;
-  background-position: 0 0, 4px 6px;
-  mix-blend-mode: screen;
-  /* sparkle only near the cursor, fading out */
-  -webkit-mask: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), #000 0%, transparent 28%);
-  mask: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), #000 0%, transparent 28%);
+  mix-blend-mode: soft-light;
 }
 .holo:hover {
-  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 20px 55px -14px rgba(0, 0, 0, 0.75);
 }
 /* quick press + sparkle burst on click */
 .holo:active {
-  transform: perspective(900px) rotateX(var(--ry, 0deg)) rotateY(var(--rx, 0deg)) scale(0.985);
+  transform: perspective(1000px) rotateX(var(--ry, 0deg)) rotateY(var(--rx, 0deg)) scale(0.985);
 }
 @keyframes holo-burst {
-  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.35), 0 18px 50px -12px rgba(0, 0, 0, 0.7); }
-  100% { box-shadow: 0 0 0 16px rgba(255, 255, 255, 0), 0 18px 50px -12px rgba(0, 0, 0, 0.7); }
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4), 0 20px 55px -14px rgba(0, 0, 0, 0.75); }
+  100% { box-shadow: 0 0 0 18px rgba(255, 255, 255, 0), 0 20px 55px -14px rgba(0, 0, 0, 0.75); }
 }
-.holo-pop {
-  animation: holo-burst 0.45s ease-out;
-}
-.holo-pop::after {
-  opacity: 1;
-}
+.holo-pop { animation: holo-burst 0.5s ease-out; }
+.holo-pop::before { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .bubble { animation: none; display: none; }

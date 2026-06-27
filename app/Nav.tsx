@@ -23,8 +23,10 @@ export function Nav() {
   );
   return (
     <nav className="sticky top-0 z-30 flex items-center gap-2 border-b bg-[var(--background)]/80 px-5 py-3 backdrop-blur">
-      <Link href="/" className="mr-2 font-bold tracking-tight text-[var(--primary)]">
-        firecrawl·traces
+      <Link href="/" className="mr-2 flex items-center gap-1.5 font-bold tracking-tight text-[var(--primary)]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icon.svg" alt="" className="h-4 w-4" />
+        spectra
       </Link>
       {link("/search", "Search")}
       {link("/flows", "Flows")}
