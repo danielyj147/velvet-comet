@@ -1,6 +1,6 @@
-# secrets — never commit
-.env
-.env.local
+# secrets — never commit. Ignore every .env* variant, then re-allow the template.
+.env*
+!.env.example
 
 # deps & build
 node_modules/
