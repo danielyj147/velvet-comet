@@ -45,21 +45,21 @@ export function scoreRelevance(
   const bm25 = buildBm25(candidates.map((c) => `${c.title} ${c.description}`));
   const queryVec = semantics?.queryVec;
 
-  // Raw per-signal scores.
-  const bm25Score = (c: Candidate, i: number) => bm25.score(queryTerms, i);
+  // Raw per-signal scores. BM25 is indexed by the doc's position in the pool.
+  const indexOf = new Map(candidates.map((c, i) => [c.canonicalUrl, i]));
+  const bm25Score = (c: Candidate) => bm25.score(queryTerms, indexOf.get(c.canonicalUrl)!);
   const denseScore = (c: Candidate) => {
     const v = semantics?.vectorOf(c.canonicalUrl);
     return queryVec && v ? Math.max(0, cosine(queryVec, v)) : 0;
   };
-  const indexOf = new Map(candidates.map((c, i) => [c.canonicalUrl, i]));
 
   // Rank each signal across the pool.
-  const bm25Ranks = rankMap(candidates, (c) => bm25Score(c, indexOf.get(c.canonicalUrl)!));
+  const bm25Ranks = rankMap(candidates, bm25Score);
   const denseRanks = queryVec ? rankMap(candidates, denseScore) : null;
   const consensusRanks = rankMap(candidates, (c) => c.rrfScore);
 
   // Normalizers for the displayed signal breakdown.
-  const nBm = normalizer(candidates.map((c, i) => bm25Score(c, i)));
+  const nBm = normalizer(candidates.map(bm25Score));
   const nDense = normalizer(candidates.map(denseScore));
   const nCons = normalizer(candidates.map((c) => c.rrfScore));
 
@@ -73,10 +73,9 @@ export function scoreRelevance(
   const nFused = normalizer([...fused.values()]);
 
   for (const c of candidates) {
-    const i = indexOf.get(c.canonicalUrl)!;
     c.relevance = nFused(fused.get(c.canonicalUrl)!);
     c.signals = {
-      bm25: nBm(bm25Score(c, i)),
+      bm25: nBm(bm25Score(c)),
       dense: queryVec ? nDense(denseScore(c)) : null,
       consensus: nCons(c.rrfScore),
     };

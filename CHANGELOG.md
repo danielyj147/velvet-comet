@@ -6,7 +6,22 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Changed — narrowed to one problem (latest)
+### Removed / Changed — cut intent, user-first UX (latest)
+- **Cut the intent feature entirely** (may revisit). Reordering by a heuristic
+  criterion was hard to verify; tightening the core (observable hybrid retrieval —
+  recall, precision, dedup, diversity, all measurable) matters more. Removed
+  `searchtrace/intent.ts`, the rank-by stage, the `intent`/`rankScore` fields, the
+  intent UI, and its tests. MMR ranks on relevance again.
+- **User-first search UX:** clean search bar + plain-language quick filters
+  (sources, recency); all power knobs (depth, diversity, min-relevance, categories,
+  niche domains, content/maxAge, AI) tucked behind **More**. A plain-language
+  coverage strip ("N results · searched M lists · merged K duplicates · D domains")
+  is always visible; the full pipeline funnel + hints are behind **how it works**;
+  per-result signals fold away under "why this result". Narrower column, calmer page.
+- Readability: extracted small components (Chip/Advanced/CoverageStrip/Inspect/Why),
+  simplified the BM25 scorer, removed dead params.
+
+### Changed — narrowed to one problem
 - **Refocused the submission on a single problem** (the brief's whole point): search
   ranking is generic + opaque, so customers rebuild reranking themselves (#5).
   Rewrote `ONEPAGER.md` to claim ONE problem, with intent ranking / hybrid relevance

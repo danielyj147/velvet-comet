@@ -14,13 +14,10 @@ import { dedup } from "./dedup.js";
 import { scoreRelevance, precisionGate } from "./rerank.js";
 import { diversify } from "./diversify.js";
 import { getEmbedder } from "./embeddings.js";
-import { classifyIntent, rerankByIntent } from "./intent.js";
-import type { Intent, Recency } from "./types.js";
+import type { Recency } from "./types.js";
 import { log } from "./log.js";
 
-/** How much the intent criterion reweights the final order vs pure relevance. */
-const INTENT_WEIGHT = 0.4;
-
+/** Result-recency (`recency`) maps to Firecrawl's `tbs` time filter. */
 const TBS: Record<Recency, string | undefined> = {
   any: undefined,
   day: "qdr:d",
@@ -69,16 +66,7 @@ export async function runSearch(
     return result;
   };
 
-  // 0. Resolve intent (#5). It drives both retrieval (which sources/recency) and
-  //    ranking (which criterion). "auto" infers it from the query.
-  const intent: Intent = req.intention === "auto" ? classifyIntent(req.query) : req.intention;
-  const inferred = req.intention === "auto";
-  // Intent is a RERANK directive only (#5: "order results for that intent"). It does
-  // NOT steer retrieval — choosing the corpus (web/news/research/github/pdf) is the
-  // job of Firecrawl's own `sources`/`categories`, exposed as the pills. Keeping them
-  // orthogonal removes the overlap: pills = WHERE to search, intent = HOW to order.
   const tbs = TBS[req.recency];
-  log("search.intent", { intent, inferred });
 
   // 1. Expand the query (wider, not just deeper).
   const expander = opts.expander ?? (useModels ? undefined : heuristicExpander);
@@ -168,25 +156,7 @@ export async function runSearch(
     () => `dropped ${droppedLowRelevance} below minRelevance=${req.minRelevance}`,
   );
 
-  // 6b. Intent rerank (#5): blend the intent criterion into the ordering score.
-  //     relevance stays the pure precision signal (the gate used it); rankScore is
-  //     what MMR orders by, so news ranks fresh, buying ranks comparison pages, etc.
-  let intentLift: ReturnType<typeof rerankByIntent>;
-  await stage(
-    `rank by ${intent}`,
-    gated.length,
-    () => {
-      intentLift = rerankByIntent(gated, intent, req.query, INTENT_WEIGHT, req.topK);
-      return gated;
-    },
-    (c) => c.length,
-    () =>
-      intentLift
-        ? `${intentLift.criterion}: ${intentLift.before.toFixed(2)}→${intentLift.after.toFixed(2)} in top-${intentLift.k}`
-        : "relevance order (no criterion)",
-  );
-
-  // 7. Diversify with MMR down to topK (ranks on rankScore, spreads by domain).
+  // 7. Diversify with MMR down to topK (ranks on relevance, spreads by domain).
   const results = await stage(
     "diversify (MMR)",
     gated.length,
@@ -209,7 +179,6 @@ export async function runSearch(
   });
 
   return {
-    intent: { value: intent, inferred, lift: intentLift },
     query: req.query,
     tier: req.tier,
     expansions,
