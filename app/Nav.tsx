@@ -29,7 +29,6 @@ export function Nav() {
         spectra
       </Link>
       {link("/search", "Search")}
-      {link("/flows", "Flows")}
       <div className="flex-1" />
       <button
         onClick={openPalette}

@@ -1,47 +1,38 @@
-# Firecrawl Traces — make the opaque legible
+# Spectra — search that's actually complete
 
-A Firecrawl operation that fails or under-delivers usually comes back as a black
-box: one error, or one ranked list with no idea *why*. This project turns that black
-box into a **trace** — every stage and every result, with the reason it's there and
-what to do next — across two surfaces that share the same idea:
+A raised result limit just returns more of the same popular sites. For work where
+**completeness is the product** — landscape reports, competitive intelligence — that
+fails: the trade pubs, regional press, and niche forums never surface at any limit,
+and a flat ranked list gives you no way to see what was missed or why something
+ranked.
 
-- **`searchtrace/` → `/search`** — an observable **retrieval pipeline** over
-  Firecrawl search: `expand → federate → RRF fuse → embed → dedup → rerank →
-  precision gate → MMR diversify`. Recall *and* precision you can see, with
-  per-result provenance and a coverage panel. (Built for the Search role; serves
-  customer asks #1 completeness, #5 intent/rerank, #4 latency tiers.)
-- **`tracewright/` → `/flows`** — step-level observability for **browser flows**:
-  which step failed, why, and what the page looked like — not one opaque
-  `SCRAPE_FAILED`. (Serves #7 and #11.)
-
-`app/` is one Next.js app over both, with a global **⌘K** command palette. Why this
-shape: see [`narratives/08-the-search-rethink.md`](./narratives/08-the-search-rethink.md)
-and [`ONEPAGER.md`](./ONEPAGER.md).
+**Spectra makes Firecrawl search observable and tunable.** A query runs a small
+retrieval pipeline — widen coverage → fuse → de-duplicate → rank → diversify — and
+every stage is on screen, so you can trust the result and tune it.
 
 ## Run it (under a minute)
 
 ```bash
 make install
 make env          # creates .env — add your FIRECRAWL_API_KEY
-make dev          # Next app on http://localhost:8788
+make dev          # app on http://localhost:8788
 ```
 
-Open http://localhost:8788 → **Search** and **Flows**. Press **⌘K** anywhere to
-search results, jump, or toggle settings.
+Open http://localhost:8788, search, and press **⌘K** to jump to any result. Quick
+filters (sources, recency) are upfront; power knobs are under **More**; the full
+pipeline is behind **how it works**; export any run as JSON.
 
-Optional — semantic search (better precision/dedup/diversity) via a local model:
+Optional — semantic ranking via a local model (auto lexical fallback if absent):
 
 ```bash
-make embeddings   # ollama pull nomic-embed-text  (auto lexical fallback if absent)
+make embeddings   # ollama pull nomic-embed-text   (then set EMBED_MODEL in .env)
 ```
 
-## CLIs (same logic, headless)
+## CLI
 
 ```bash
-make search Q="small business accounting software" ARGS="--tier thorough --diversity 0.5"
-make flow-demo FLOW=flows/vendor-portal-broken.json
-make checkpoint   # validate the Firecrawl CDP connection (1 short session)
-make test         # failure-path + IR unit tests
+make search Q="competitive landscape fintech" ARGS="--tier thorough --diversity 0.5"
+make test
 make              # list all targets
 ```
 
@@ -49,16 +40,12 @@ make              # list all targets
 
 | Path | What |
 | --- | --- |
-| `searchtrace/` | retrieval pipeline (expand, federate, fuse, dedup, rerank, diversify, embeddings) + CLI |
-| `tracewright/` | browser-flow runner, failure classifier, CDP session client + CLIs |
-| `app/` | shared Next.js UI + API over both, with the ⌘K palette |
-| `flows/` | example declarative browser flows |
-| `narratives/` | newcomer→staff guide to Firecrawl + the search direction |
+| `searchtrace/` | the retrieval pipeline (expand · federate · RRF fuse · dedup · rerank · diversify) + CLI |
+| `app/` | Next.js UI + API over it, with the ⌘K palette |
+| `data/` | the brief's internal numbers (tickets, accounts) |
 
-## Notes & secrets
+## Notes
 
 - `FIRECRAWL_API_KEY` via `.env` only (gitignored). No key in code or history.
-- Embeddings/expansion models are optional and local (Ollama); set `EMBED_MODEL` to
-  use a different one. Everything falls back to a lexical path without them.
-- Each demo run costs Firecrawl credits; the search `thorough` tier fans out more.
-- [`NOTES.md`](./NOTES.md) logs gotchas; [`CHANGELOG.md`](./CHANGELOG.md) tracks changes.
+- Models are opt-in (`EMBED_MODEL` / `EXPAND_MODEL`); unset → full lexical pipeline.
+  Deploy with `AI_DISABLED=1` to hard-disable the model path.
