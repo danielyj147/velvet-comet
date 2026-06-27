@@ -18,8 +18,8 @@ import { classifyIntent, intentScore } from "./intent.js";
 import type { Intent, Recency } from "./types.js";
 import { log } from "./log.js";
 
-/** How much the intent boost reweights the final order vs pure relevance. */
-const INTENT_WEIGHT = 0.35;
+/** How much the intent criterion reweights the final order vs pure relevance. */
+const INTENT_WEIGHT = 0.4;
 
 const TBS: Record<Recency, string | undefined> = {
   any: undefined,
@@ -73,12 +73,12 @@ export async function runSearch(
   //    ranking (which criterion). "auto" infers it from the query.
   const intent: Intent = req.intention === "auto" ? classifyIntent(req.query) : req.intention;
   const inferred = req.intention === "auto";
-  // Intent nudges retrieval without overriding explicit choices: news → add the
-  // news source + default to recent; research → add the research category.
-  const sources = intent === "news" && !req.sources.includes("news") ? [...req.sources, "news"] : req.sources;
-  const categories = intent === "research" && !req.categories.includes("research") ? [...req.categories, "research"] : req.categories;
-  const tbs = TBS[req.recency] ?? (intent === "news" ? "qdr:w" : undefined);
-  log("search.intent", { intent, inferred, tbs: tbs ?? "none" });
+  // Intent is a RERANK directive only (#5: "order results for that intent"). It does
+  // NOT steer retrieval — choosing the corpus (web/news/research/github/pdf) is the
+  // job of Firecrawl's own `sources`/`categories`, exposed as the pills. Keeping them
+  // orthogonal removes the overlap: pills = WHERE to search, intent = HOW to order.
+  const tbs = TBS[req.recency];
+  log("search.intent", { intent, inferred });
 
   // 1. Expand the query (wider, not just deeper).
   const expander = opts.expander ?? (useModels ? undefined : heuristicExpander);
@@ -98,8 +98,8 @@ export async function runSearch(
       const perQuery = await Promise.all(
         expansions.map((q) =>
           federateQuery(q, {
-            sources,
-            categories,
+            sources: req.sources,
+            categories: req.categories,
             nicheDomains: req.nicheDomains,
             limit: req.limit,
             tbs,
@@ -175,11 +175,20 @@ export async function runSearch(
     `intent (${intent})`,
     gated.length,
     () => {
-      for (const c of gated) {
-        const { score, factor } = intentScore(intent, c);
-        c.intent = intent === "general" ? undefined : { factor, score };
-        c.rankScore =
-          intent === "general" ? c.relevance : (1 - INTENT_WEIGHT) * c.relevance + INTENT_WEIGHT * score;
+      if (intent === "general") {
+        for (const c of gated) c.rankScore = c.relevance;
+        return gated;
+      }
+      // Score by the intent criterion, then min–max normalize across the result set
+      // so even small variations become a usable spread (uniform signal → no effect).
+      const scored = gated.map((c) => ({ c, ...intentScore(intent, c, req.query) }));
+      const vals = scored.map((s) => s.score);
+      const min = Math.min(...vals);
+      const span = Math.max(...vals) - min;
+      for (const s of scored) {
+        const norm = span > 0 ? (s.score - min) / span : 0;
+        s.c.intent = { factor: s.factor, score: s.score };
+        s.c.rankScore = (1 - INTENT_WEIGHT) * s.c.relevance + INTENT_WEIGHT * norm;
       }
       gated.sort((a, b) => (b.rankScore ?? b.relevance) - (a.rankScore ?? a.relevance));
       return gated;

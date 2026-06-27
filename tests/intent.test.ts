@@ -32,23 +32,23 @@ describe("intentScore — the criterion changes with intent", () => {
   it("buying rewards comparison pages", () => {
     const comparison = cand({ title: "Best X vs Y: full comparison and review" });
     const plain = cand({ title: "X product homepage" });
-    expect(intentScore("buying", comparison).score).toBeGreaterThan(intentScore("buying", plain).score);
-    expect(intentScore("buying", comparison).factor).toBe("comparison");
+    expect(intentScore("buying", comparison, "").score).toBeGreaterThan(intentScore("buying", plain, "").score);
+    expect(intentScore("buying", comparison, "").factor).toBe("comparison");
   });
 
   it("news rewards fresh / news-sourced results", () => {
     const fresh = cand({ description: "Breaking: announced today, 2026", appearances: [{ query: "q", list: "news", position: 1 }] });
     const stale = cand({ description: "an evergreen explainer" });
-    expect(intentScore("news", fresh).score).toBeGreaterThan(intentScore("news", stale).score);
+    expect(intentScore("news", fresh, "").score).toBeGreaterThan(intentScore("news", stale, "").score);
   });
 
   it("research rewards authoritative domains", () => {
     const authoritative = cand({ domain: "arxiv.org" });
     const blog = cand({ domain: "randomblog.io" });
-    expect(intentScore("research", authoritative).score).toBeGreaterThan(intentScore("research", blog).score);
+    expect(intentScore("research", authoritative, "").score).toBeGreaterThan(intentScore("research", blog, "").score);
   });
 
   it("general applies no boost", () => {
-    expect(intentScore("general", cand({ title: "best vs comparison" })).score).toBe(0);
+    expect(intentScore("general", cand({ title: "best vs comparison" }), "").score).toBe(0);
   });
 });
