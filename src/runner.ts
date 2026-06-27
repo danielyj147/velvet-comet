@@ -2,7 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { createSession, closeSession } from "./firecrawl.js";
-import { classify, StepTimeoutError } from "./classify.js";
+import { classify } from "./classify.js";
+import { withTimeout } from "./timeout.js";
 import type { Flow, Step, StepEvent, RunTrace, RunStatus } from "./types.js";
 
 const DEFAULT_STEP_TIMEOUT_MS = 15_000;
@@ -44,7 +45,7 @@ function labelFor(step: Step): string {
 }
 
 /** Display params with secrets redacted — secret values never enter the trace. */
-function redactParams(step: Step): Record<string, unknown> {
+export function redactParams(step: Step): Record<string, unknown> {
   const { type, label, timeoutMs, ...rest } = step as Record<string, unknown>;
   if (step.type === "fill") {
     const value =
@@ -54,26 +55,6 @@ function redactParams(step: Step): Record<string, unknown> {
     return { selector: step.selector, value };
   }
   return rest;
-}
-
-/** Hard per-step timeout so a single hung step can never stall the whole run. */
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new StepTimeoutError(`${label} exceeded ${ms}ms`)),
-      ms,
-    );
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
 }
 
 /** Execute one step's browser action. Throws on failure; the caller classifies. */

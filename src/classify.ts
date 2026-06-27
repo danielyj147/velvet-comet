@@ -1,4 +1,5 @@
 import type { FailureReason, Step } from "./types.js";
+import { StepTimeoutError } from "./timeout.js";
 
 /**
  * Failure classification — the part that turns "SCRAPE_FAILED" into a reason a
@@ -12,15 +13,6 @@ import type { FailureReason, Step } from "./types.js";
  * Page state is checked first, because a captcha is the root cause even if what
  * we observed was "the button never appeared".
  */
-
-/** Our own timeout, thrown by the runner's per-step budget (distinct from
- *  Playwright's internal action timeouts). */
-export class StepTimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "StepTimeoutError";
-  }
-}
 
 const CAPTCHA_MARKERS = [
   "captcha",
