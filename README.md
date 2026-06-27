@@ -1,26 +1,36 @@
 # Spectra — search that's actually complete
 
-A raised result limit just returns more of the same popular sites. For work where
-**completeness is the product** — landscape reports, competitive intelligence — that
-fails: the trade pubs, regional press, and niche forums never surface at any limit,
-and a flat ranked list gives you no way to see what was missed or why something
-ranked.
+For work where **completeness is the product** — landscape reports, competitive
+intelligence — a ranked list fails: raising the limit just returns more of the same
+popular sites, and the trade pubs, regional press, and niche forums never surface at
+any limit.
 
-**Spectra makes Firecrawl search observable and tunable.** A query runs a small
-retrieval pipeline — widen coverage → fuse → de-duplicate → rank → diversify — and
-every stage is on screen, so you can trust the result and tune it.
+**Spectra mines for the long tail.** Each round it re-searches while *excluding every
+domain it has already seen*, so new sources surface instead of more of the same — and
+it keeps going until it has enough relevant results, the new sources dry up, or a
+budget is hit. It shows, per round, how much new coverage it found.
 
-## Run it (under a minute)
+It's built for the real use case (a nightly batch of thousands of queries): the **CLI**
+is the primary surface, and a **studio** web UI browses the sessions the batch produced.
+
+## Run it
 
 ```bash
 make install
-make env          # creates .env — add your FIRECRAWL_API_KEY
-make dev          # app on http://localhost:8788
+make env                       # creates .env — add your FIRECRAWL_API_KEY
+make cli Q="competitive landscape: fintech fraud"
+make cli ARGS="--help"         # all flags
 ```
 
-Open http://localhost:8788, search, and press **⌘K** to jump to any result. Quick
-filters (sources, recency) are upfront; power knobs are under **More**; the full
-pipeline is behind **how it works**; export any run as JSON.
+Nightly batch (one query per line), then browse the results:
+
+```bash
+make batch FILE=queries.txt ARGS="--target 30"
+make studio                    # http://localhost:8788 — scroll sessions, or search live
+```
+
+Every run is saved as a session in `./sessions/` (override with `SPECTRA_SESSIONS_DIR`);
+the CLI and the studio share that folder. Press **⌘K** in the studio to jump anywhere.
 
 Optional — semantic ranking via a local model (auto lexical fallback if absent):
 
@@ -28,24 +38,23 @@ Optional — semantic ranking via a local model (auto lexical fallback if absent
 make embeddings   # ollama pull nomic-embed-text   (then set EMBED_MODEL in .env)
 ```
 
-## CLI
+## How completeness works
 
-```bash
-make search Q="competitive landscape fintech" ARGS="--tier thorough --diversity 0.5"
-make test
-make              # list all targets
-```
+`expand → [mine: search, excluding seen domains; repeat until target / plateau /
+budget] → RRF fuse → dedup → rerank → diversify (MMR)`. The trace records new
+relevant domains per round and why it stopped — so "how complete is this?" is a number,
+not a guess. Diversity, dedup, and recall are all measurable; nothing claims to be magic.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `searchtrace/` | the retrieval pipeline (expand · federate · RRF fuse · dedup · rerank · diversify) + CLI |
-| `app/` | Next.js UI + API over it, with the ⌘K palette |
-| `data/` | the brief's internal numbers (tickets, accounts) |
+| `searchtrace/` | the engine (mining loop, fuse, dedup, rerank, diversify) + CLI + sessions |
+| `app/` | the studio (Next.js): sessions browser + ad-hoc search, ⌘K |
+| `data/` | the brief's internal numbers |
 
 ## Notes
 
 - `FIRECRAWL_API_KEY` via `.env` only (gitignored). No key in code or history.
 - Models are opt-in (`EMBED_MODEL` / `EXPAND_MODEL`); unset → full lexical pipeline.
-  Deploy with `AI_DISABLED=1` to hard-disable the model path.
+  The mining loop itself is AI-free (it's just `excludeDomains`).
