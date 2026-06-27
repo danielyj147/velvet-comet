@@ -6,7 +6,18 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — intent-aware ranking (#5) + freshness controls (latest)
+### Changed — narrowed to one problem (latest)
+- **Refocused the submission on a single problem** (the brief's whole point): search
+  ranking is generic + opaque, so customers rebuild reranking themselves (#5).
+  Rewrote `ONEPAGER.md` to claim ONE problem, with intent ranking / hybrid relevance
+  / freshness / dedup / diversity / the trace as *depth* on it — not separate wins.
+- **Flows reframed as secondary** — kept in the app, but explicitly a 1-line aside
+  ("the same observability idea on the scrape surface"), not a co-headline.
+- **Stopped chasing soft-block detection** (LinkedIn login walls): reliably catching
+  them is the anti-bot arms race, an explicit anti-goal. Best-effort captcha/login
+  detection only; the limitation is documented, not hidden.
+
+### Added — intent-aware ranking (#5) + freshness controls
 - **`intention` field (#5):** auto / news / research / buying / jobs. Changes the
   ranking criterion (news=freshness, research=authority, buying=comparison,
   jobs=recency), inferred from the query on `auto`, and steers retrieval (news adds
