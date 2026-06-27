@@ -14,6 +14,8 @@ next-env.d.ts
 *.sqlite
 *.sqlite-*
 data/traces/
+data/flow-runs/
+data/seed-tmp/
 public/artifacts/
 *.log
 

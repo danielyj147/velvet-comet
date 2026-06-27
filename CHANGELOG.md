@@ -6,7 +6,20 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — AI toggle + deploy guard (latest)
+### Added — saved runs, search failures, palette + holo polish (latest)
+- **Flows show a saved failure by default** — a committed example run
+  (`tracewright/seed-run.json` + screenshot in `public/seed/`) renders instantly,
+  so a reviewer sees the exact failed step without a live, credit-costing run.
+  Live runs now **persist** (`data/flow-runs/`) and appear in a "Saved runs" list;
+  `/api/flows/runs` serves seed + persisted, newest first.
+- **Search failures are classified** — a failure card with a kind
+  (rate_limit / timeout / auth / network) and an actionable hint, not a raw string.
+- **⌘K: Shift+Enter runs a search** (the registered primary action; falls back to
+  navigating to /search).
+- **Holographic cards toned down** — subtle pointer glare + a fine **glitter** field
+  near the cursor (no more full rainbow), plus a quick **sparkle-burst on click**.
+
+### Added — AI toggle + deploy guard
 - **AI toggle** in the search UI (embeddings + LLM expansion on/off), with a
   matching ⌘K command. Default OFF — the fast lexical path is the first experience.
 - **Deploy guard:** `AI_DISABLED=1` (or no models configured) greys out the toggle

@@ -18,6 +18,29 @@ const CATEGORIES = ["research", "github", "pdf"] as const;
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const relColor = (r: number) => (r > 0.55 ? "var(--green)" : r > 0.3 ? "var(--amber)" : "var(--muted)");
 
+/** Classify a search failure so the user sees *why*, not just a stack string. */
+function searchErrorKind(msg: string): string {
+  if (/\b429\b|rate limit/i.test(msg)) return "rate_limit";
+  if (/timeout|timed out/i.test(msg)) return "timeout";
+  if (/401|unauthorized|api key/i.test(msg)) return "auth";
+  if (/network|fetch failed|ENOTFOUND|ECONN/i.test(msg)) return "network";
+  return "error";
+}
+function searchErrorHint(msg: string): string {
+  switch (searchErrorKind(msg)) {
+    case "rate_limit":
+      return "Firecrawl rate limit — wait a few seconds and retry, or use the fast tier (fewer calls).";
+    case "timeout":
+      return "Took too long — try the fast tier, fewer sources, or drop some niche domains.";
+    case "auth":
+      return "Check FIRECRAWL_API_KEY in your .env.";
+    case "network":
+      return "Couldn't reach Firecrawl — check your connection.";
+    default:
+      return "Unexpected error. The message above is the raw cause.";
+  }
+}
+
 export default function SearchPage() {
   const [query, setQuery] = React.useState("small business accounting software");
   const [tier, setTier] = React.useState<Tier>("balanced");
@@ -94,7 +117,7 @@ export default function SearchPage() {
       cmds.push({ id: `div-${d}`, group: "Settings", label: `Diversity: ${d}`, hint: diversity === d ? "current" : "", perform: () => setDiversity(d) });
     if (ai.allowed)
       cmds.push({ id: "act-ai", group: "Settings", label: `AI: ${useAI ? "on" : "off"}`, hint: "embeddings + LLM expansion", perform: () => setUseAI((v) => !v) });
-    cmds.push({ id: "act-run", group: "Actions", label: "Run search", perform: () => void run() });
+    cmds.push({ id: "act-run", group: "Actions", label: "Run search", primary: true, hint: "⇧⏎", perform: () => void run() });
     cmds.push({ id: "act-focus", group: "Actions", label: "Focus query box", perform: () => inputRef.current?.focus() });
     return cmds;
   }, [trace, tier, sources, categories, diversity, useAI, ai.allowed, run, jumpTo]);
@@ -166,7 +189,13 @@ export default function SearchPage() {
         </span>
       </div>
 
-      {error && <div className="mt-6 rounded-lg border border-[var(--red)] bg-[var(--surface)] p-3 text-sm text-[var(--red)]">Error: {error}</div>}
+      {error && (
+        <div className="mt-6 rounded-xl border border-[var(--red)] bg-[var(--surface)] p-4">
+          <Badge style={{ color: "var(--red)", borderColor: "var(--red)" }}>{searchErrorKind(error)}</Badge>
+          <p className="mt-2 text-sm">{error}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">{searchErrorHint(error)}</p>
+        </div>
+      )}
       {!trace && !error && (
         <div className="mt-16 text-center text-[var(--muted)]">
           {loading ? "Running the pipeline…" : "Hit Search to see results and the trace behind them."}

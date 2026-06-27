@@ -19,79 +19,116 @@ const stepColor = (s: StepEvent["status"]) => (s === "passed" ? "var(--green)" :
 
 export default function FlowsPage() {
   const [flows, setFlows] = React.useState<FlowSummary[]>([]);
-  const [trace, setTrace] = React.useState<RunTrace | null>(null);
+  const [seed, setSeed] = React.useState<RunTrace | null>(null);
+  const [saved, setSaved] = React.useState<RunTrace[]>([]);
+  const [viewing, setViewing] = React.useState<RunTrace | null>(null);
   const [running, setRunning] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
+  const loadRuns = React.useCallback(async () => {
+    const { seed, runs } = await fetch("/api/flows/runs").then((r) => r.json());
+    setSeed(seed);
+    setSaved(runs ?? []);
+    // Default to the most recent real run, else the committed example failure.
+    setViewing((v) => v ?? runs?.[0] ?? seed ?? null);
+  }, []);
+
   React.useEffect(() => {
     fetch("/api/flows").then((r) => r.json()).then(setFlows).catch(() => {});
-  }, []);
+    loadRuns().catch(() => {});
+  }, [loadRuns]);
 
   const run = React.useCallback(async (flowName: string) => {
     setRunning(flowName);
     setError(null);
-    setTrace(null);
     try {
       const res = await fetch("/api/flows/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ flowName }) });
       const json = await res.json();
       if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "run failed");
-      setTrace(json as RunTrace);
+      setViewing(json as RunTrace);
+      loadRuns().catch(() => {});
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setRunning(null);
     }
-  }, []);
+  }, [loadRuns]);
 
   const commands = React.useMemo<Cmd[]>(() => {
     const cmds: Cmd[] = flows.map((f) => ({ id: `run-${f.name}`, group: "Actions", label: `Run flow: ${f.name}`, hint: `${f.stepCount} steps`, perform: () => void run(f.name) }));
-    if (trace?.failedStepIndex != null)
-      cmds.push({ id: "jump-failed", group: "Results", label: `Jump to failed step (${trace.failedStepIndex})`, perform: () => document.getElementById(`step-${trace.failedStepIndex}`)?.scrollIntoView({ behavior: "smooth", block: "center" }) });
+    for (const r of saved)
+      cmds.push({ id: `view-${r.id}`, group: "Results", label: `View run: ${r.flowName}`, hint: r.status, perform: () => setViewing(r) });
+    if (viewing?.failedStepIndex != null)
+      cmds.push({ id: "jump-failed", group: "Results", label: `Jump to failed step (${viewing.failedStepIndex})`, perform: () => document.getElementById(`step-${viewing.failedStepIndex}`)?.scrollIntoView({ behavior: "smooth", block: "center" }) });
     return cmds;
-  }, [flows, trace, run]);
+  }, [flows, saved, viewing, run]);
   useCommandRegister(commands, [commands]);
 
   return (
     <main className="mx-auto max-w-6xl px-5 pb-24 pt-8">
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-        <aside className="space-y-2">
-          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">Flows</h3>
-          {flows.map((f) => (
-            <div key={f.name} className="rounded-xl border bg-[var(--surface)] p-3">
-              <div className="flex items-center justify-between gap-2">
-                <strong className="text-sm">{f.name}</strong>
-                <Button size="sm" variant="outline" disabled={!!running} onClick={() => run(f.name)}>
-                  {running === f.name ? "running…" : "run"}
-                </Button>
-              </div>
-              <p className="mt-1 text-xs text-[var(--muted)]">{f.description}</p>
-              <span className="text-[11px] text-[var(--muted)]">{f.stepCount} steps</span>
+        <aside className="space-y-4">
+          {/* Saved runs first: a reviewer sees a real failure instantly, no live run. */}
+          <div>
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">Saved runs</h3>
+            <div className="space-y-1.5">
+              {seed && <SavedItem trace={seed} active={viewing === seed} example onClick={() => setViewing(seed)} />}
+              {saved.map((r) => (
+                <SavedItem key={r.id} trace={r} active={viewing?.id === r.id} onClick={() => setViewing(r)} />
+              ))}
+              {!seed && saved.length === 0 && <div className="text-xs text-[var(--muted)]">No saved runs yet.</div>}
             </div>
-          ))}
-          {flows.length === 0 && <div className="text-sm text-[var(--muted)]">No flows found.</div>}
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">Run live</h3>
+            <p className="mb-2 text-[11px] text-[var(--muted)]">Uses a real Firecrawl browser session (~20s, costs credits).</p>
+            {flows.map((f) => (
+              <div key={f.name} className="mb-1.5 rounded-lg border bg-[var(--surface)] p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <strong className="text-sm">{f.name}</strong>
+                  <Button size="sm" variant="outline" disabled={!!running} onClick={() => run(f.name)}>
+                    {running === f.name ? "running…" : "run"}
+                  </Button>
+                </div>
+                <p className="mt-1 text-[11px] text-[var(--muted)]">{f.description}</p>
+              </div>
+            ))}
+          </div>
         </aside>
 
         <div>
-          {error && <div className="rounded-lg border border-[var(--red)] bg-[var(--surface)] p-3 text-sm text-[var(--red)]">Error: {error}</div>}
-          {!trace && !error && (
-            <div className="mt-16 text-center text-[var(--muted)]">
-              {running ? "Running the flow… (a live browser session)" : "Run a flow to see exactly which step failed, why, and the page at that moment."}
-            </div>
+          {error && <div className="mb-3 rounded-lg border border-[var(--red)] bg-[var(--surface)] p-3 text-sm text-[var(--red)]">Error: {error}</div>}
+          {!viewing ? (
+            <div className="mt-16 text-center text-[var(--muted)]">Select a saved run, or run a flow live.</div>
+          ) : (
+            <TraceView trace={viewing} isSeed={viewing === seed} />
           )}
-          {trace && <TraceView trace={trace} />}
         </div>
       </div>
     </main>
   );
 }
 
-function TraceView({ trace }: { trace: RunTrace }) {
+function SavedItem({ trace, active, example, onClick }: { trace: RunTrace; active: boolean; example?: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-lg border bg-[var(--surface)] px-2.5 py-2 text-left text-sm", active && "border-[var(--primary)]")}>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[trace.status] ?? "var(--muted)" }} />
+      <span className="flex-1 truncate">{trace.flowName}</span>
+      {example && <Badge className="text-[var(--muted)]">example</Badge>}
+      <span className="text-[11px] text-[var(--muted)]">{trace.failedStepIndex != null ? `@${trace.failedStepIndex}` : trace.status}</span>
+    </button>
+  );
+}
+
+function TraceView({ trace, isSeed }: { trace: RunTrace; isSeed: boolean }) {
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <h3 className="text-lg font-semibold">{trace.flowName}</h3>
         <Badge style={{ color: STATUS_COLOR[trace.status], borderColor: STATUS_COLOR[trace.status] }}>{trace.status}</Badge>
         {trace.failedStepIndex != null && <span className="text-xs text-[var(--red)]">failed at step {trace.failedStepIndex}</span>}
+        {isSeed && <span className="text-xs text-[var(--muted)]">· saved example (no run needed)</span>}
       </div>
       <div className="space-y-2">
         {trace.steps.map((s) => <StepRow key={s.index} step={s} />)}

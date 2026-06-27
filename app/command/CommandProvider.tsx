@@ -17,6 +17,8 @@ export interface Cmd {
   label: string;
   hint?: string;
   keywords?: string;
+  /** If true, Shift+Enter in the palette runs this directly (e.g. "Run search"). */
+  primary?: boolean;
   perform: () => void;
 }
 
@@ -104,7 +106,19 @@ export function CommandProvider({ children }: { children: React.ReactNode }) {
       >
         <Command.Input
           autoFocus
-          placeholder="Search results, jump, or toggle settings…"
+          placeholder="Search results, jump, or toggle settings…   (⇧⏎ to run a search)"
+          onKeyDown={(e) => {
+            // Shift+Enter runs the registered primary action (search), wherever you are.
+            if (e.key === "Enter" && e.shiftKey) {
+              e.preventDefault();
+              const primary = all.find((c) => c.primary);
+              if (primary) run(primary);
+              else {
+                setOpen(false);
+                router.push("/search");
+              }
+            }
+          }}
           className="w-full border-b bg-transparent px-4 py-4 text-[15px] outline-none placeholder:text-[var(--muted)]"
         />
         <Command.List className="max-h-[420px] overflow-auto p-2">

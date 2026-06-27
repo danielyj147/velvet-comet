@@ -37,11 +37,24 @@ export function HoloCard({
     el.style.setProperty("--holo-opacity", "0");
   };
 
+  // Quick sparkle-burst on click: toggle the animation class, then remove it so it
+  // can re-fire next time.
+  const pop = (e: React.PointerEvent<HTMLDivElement>) => {
+    onMove(e);
+    const el = ref.current;
+    if (!el) return;
+    el.classList.remove("holo-pop");
+    void el.offsetWidth; // reflow so the animation restarts
+    el.classList.add("holo-pop");
+    window.setTimeout(() => el.classList.remove("holo-pop"), 480);
+  };
+
   return (
     <div
       ref={ref}
       onPointerMove={onMove}
       onPointerLeave={reset}
+      onPointerDown={pop}
       className={cn(
         "holo rounded-xl border bg-[var(--surface)] p-4",
         className,
