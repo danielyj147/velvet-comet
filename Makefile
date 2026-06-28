@@ -36,8 +36,8 @@ studio: ## Build + serve the studio on :8788 (browses ./sessions)
 dev: ## Studio in dev mode (hot reload)
 	npm run dev
 
-## --- optional AI (sharper expansion + entity probes + semantic ranking) ---
-models: ## Install Ollama + pull local models (or set ANTHROPIC_API_KEY/OPENAI_API_KEY in .env)
+## --- optional AI (sharper query expansion + entity probes; small chat model) ---
+models: ## Install Ollama + pull a small chat model (or set ANTHROPIC_API_KEY/OPENAI_API_KEY in .env)
 	bash scripts/setup-ollama.sh
 clean: ## Remove build artifacts (keeps ./sessions)
 	rm -rf .next dist 2>/dev/null || true

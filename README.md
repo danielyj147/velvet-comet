@@ -38,16 +38,17 @@ the CLI and the studio share that folder. Press **⌘K** in the studio to jump a
 ### Optional: turn on AI (starting from a clean machine)
 
 Everything above runs with **just a Firecrawl key** — a fully lexical pipeline, no
-accounts, no models. AI is opt-in and only makes the expansion/entity probes sharper
-(and adds semantic ranking). Pick one:
+accounts, no models. AI is opt-in and does exactly one thing: a small chat model makes
+the query expansion + entity probes sharper. (Ranking/dedup/diversity are lexical — no
+embeddings — so it stays fast at batch scale.) Pick one:
 
 ```bash
-# A) Local, zero accounts — installs Ollama + pulls a small embed + chat model:
-make models        # then it prints the EMBED_MODEL / EXPAND_MODEL lines for .env
+# A) Local, zero accounts — installs Ollama + pulls one small chat model:
+make models        # then it prints the EXPAND_MODEL line for .env
 
 # B) Hosted — just add a key to .env (no local setup):
-#   ANTHROPIC_API_KEY=sk-ant-...   # Claude: expansion + entity probes
-#   OPENAI_API_KEY=sk-...          # OpenAI: expansion + entity probes + embeddings
+#   ANTHROPIC_API_KEY=sk-ant-...   # Claude
+#   OPENAI_API_KEY=sk-...          # OpenAI
 ```
 
 Then flip the **AI** toggle in the studio (or pass nothing extra on the CLI). If a
@@ -78,5 +79,6 @@ no second copy of the logic, and the API key never leaves the server.
 ## Notes
 
 - `FIRECRAWL_API_KEY` via `.env` only (gitignored). No key in code or history.
-- Models are opt-in (`EMBED_MODEL` / `EXPAND_MODEL`); unset → full lexical pipeline.
-  The decomposition itself is AI-free (deterministic facets + entity extraction).
+- AI is opt-in (`EXPAND_MODEL` or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`); unset → full
+  lexical pipeline. The decomposition works AI-free (deterministic facets + entity
+  extraction); a chat model just sharpens it. Ranking/dedup/diversity are always lexical.

@@ -1,6 +1,5 @@
-import type { Candidate, Semantics } from "./types.js";
+import type { Candidate } from "./types.js";
 import { tokenize, jaccard } from "./text.js";
-import { cosine } from "./embeddings.js";
 
 /**
  * Maximal Marginal Relevance (MMR). Build the final list greedily, each pick
@@ -11,25 +10,13 @@ import { cosine } from "./embeddings.js";
  * thing the analyst actually wants) is what gets rewarded.
  */
 
-/** Content similarity for MMR: cosine when vectors exist, lexical otherwise. */
-function contentSim(a: Candidate, aTok: Set<string>, b: Candidate, bTok: Set<string>, semantics?: Semantics): number {
-  const av = semantics?.vectorOf(a.canonicalUrl);
-  const bv = semantics?.vectorOf(b.canonicalUrl);
-  return av && bv ? Math.max(0, cosine(av, bv)) : jaccard(aTok, bTok);
-}
-
-/** MMR similarity: strong same-domain signal, plus content similarity. */
-function similarity(a: Candidate, aTok: Set<string>, b: Candidate, bTok: Set<string>, semantics?: Semantics): number {
+/** MMR similarity: strong same-domain signal, plus lexical content overlap. */
+function similarity(a: Candidate, aTok: Set<string>, b: Candidate, bTok: Set<string>): number {
   const sameDomain = a.domain === b.domain ? 0.7 : 0;
-  return Math.max(contentSim(a, aTok, b, bTok, semantics), sameDomain);
+  return Math.max(jaccard(aTok, bTok), sameDomain);
 }
 
-export function diversify(
-  candidates: Candidate[],
-  diversity: number,
-  topK: number,
-  semantics?: Semantics,
-): Candidate[] {
+export function diversify(candidates: Candidate[], diversity: number, topK: number): Candidate[] {
   if (candidates.length === 0) return [];
   // Rank on relevance (the precision signal), falling back to the RRF score.
   const relevanceOf = (c: Candidate) => (c.relevance > 0 ? c.relevance : c.rrfScore);
@@ -49,13 +36,7 @@ export function diversify(
       const relevance = relevanceOf(cand) / maxRel;
       let maxSim = 0;
       for (const s of selected) {
-        const sim = similarity(
-          cand,
-          tokens.get(cand.canonicalUrl)!,
-          s,
-          tokens.get(s.canonicalUrl)!,
-          semantics,
-        );
+        const sim = similarity(cand, tokens.get(cand.canonicalUrl)!, s, tokens.get(s.canonicalUrl)!);
         if (sim > maxSim) maxSim = sim;
       }
       const mmr = (1 - diversity) * relevance - diversity * maxSim;

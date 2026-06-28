@@ -6,7 +6,20 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — pluggable AI providers + LLM entity probes + clean-slate setup (latest)
+### Removed — embeddings entirely; lexical ranking + small chat model (latest)
+- **Dropped the semantic/embedding path** (rerank dense signal, semantic dedup,
+  semantic MMR, `embeddings.ts`, `EMBED_MODEL`/OpenAI embeddings, the `embed` stage).
+  Rationale (production): embedding ~70–100 snippets/query with an 8B model was the
+  whole latency cost (~130s/query) and hard to justify at a nightly batch of thousands.
+  Ranking/dedup/diversity are now lexical (BM25 ⊕ source-consensus, Jaccard, MMR) —
+  the same query now runs in **~0.8s**. AI's only job is a **small chat model** for
+  query expansion + entity probes (the task is just words + short lists, so a 3B model
+  suffices — much easier to justify than an 8B embedder).
+- `make models` / setup script now pulls **one** small chat model (default
+  `llama3.2:3b`); `.env.example` + README + config simplified to chat-only providers.
+- Removed the stale "Go to Flows" ⌘K command and the "browser flows" page metadata.
+
+### Added — pluggable AI providers + LLM entity probes + clean-slate setup
 - **Three providers, all opt-in:** Anthropic (Claude), OpenAI, or local Ollama — for
   query expansion and entity probes; OpenAI/Ollama also do embeddings (Anthropic has
   none). One `chat()` dispatch (`llm.ts`) + provider-resolved embeddings; `config.ts`

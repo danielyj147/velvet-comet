@@ -5,7 +5,6 @@ import {
   type StageRecord,
   type Candidate,
   type Coverage,
-  type Semantics,
 } from "./types.js";
 import { expand, heuristicExpander, type Expander } from "./expand.js";
 import { federateQuery, type RankedList, type RawItem } from "./firecrawl-search.js";
@@ -15,7 +14,6 @@ import { rrfFuse } from "./fuse.js";
 import { dedup } from "./dedup.js";
 import { scoreRelevance, precisionGate } from "./rerank.js";
 import { diversify } from "./diversify.js";
-import { getEmbedder } from "./embeddings.js";
 import type { Recency } from "./types.js";
 import { log } from "./log.js";
 
@@ -39,7 +37,7 @@ const TBS: Record<Recency, string | undefined> = {
 
 /**
  * The retrieval pipeline, and the trace it emits:
- *   expand → [facet probe → entity probes] → RRF fuse → embed → dedup → rerank → gate → MMR
+ *   expand → [facet probe → entity probes] → RRF fuse → dedup → rerank → gate → MMR
  * Completeness is won by decomposition: probe the topic many ways (its facets, then
  * entities pulled from its own results) rather than reading one ranking deeper. Probing
  * stops at the target, a new-domain plateau, or the round budget. Precision is the
@@ -51,9 +49,9 @@ export async function runSearch(
   opts: { expander?: Expander; useModels?: boolean } = {},
 ): Promise<SearchTrace> {
   const req = searchRequest.parse(input);
-  // AI (embeddings + LLM expansion) is on by default for the CLI; the web app passes
-  // this explicitly from the user's toggle (gated by server config). When off, we
-  // skip the embed stage and force the deterministic heuristic expander.
+  // AI (a small chat model for query expansion + entity probes) is on by default for
+  // the CLI; the web app passes this from the user's toggle (gated by server config).
+  // When off, expansion + entity selection use the deterministic heuristic paths.
   const useModels = opts.useModels ?? true;
   const startedAt = Date.now();
   const stages: StageRecord[] = [];
@@ -194,23 +192,11 @@ export async function runSearch(
     (c) => `${c.length} unique URLs after canonicalization`,
   );
 
-  // 3b. Embed query + candidates (semantic upgrade for the stages below) — only
-  //     when AI is on. Falls back to lexical automatically if Ollama isn't running.
-  const semantics = useModels
-    ? await stage(
-        "embed",
-        fused.length,
-        () => embedCandidates(req.query, fused),
-        (s) => (s ? fused.length : 0),
-        (s) => (s ? `vectors via ${s.model}` : "lexical fallback (no embedder)"),
-      )
-    : null;
-
-  // 4. Collapse content near-duplicates (syndication; semantic when embedded).
+  // 4. Collapse content near-duplicates (the same article syndicated across domains).
   const deduped = await stage(
     "dedup",
     fused.length,
-    () => dedup(fused, semantics ?? undefined),
+    () => dedup(fused),
     (c) => c.length,
     (c) => `${fused.length - c.length} near-duplicate(s) collapsed`,
   );
@@ -219,7 +205,7 @@ export async function runSearch(
   const scored = await stage(
     "rerank (relevance)",
     deduped.length,
-    () => scoreRelevance(req.query, deduped, semantics ?? undefined),
+    () => scoreRelevance(req.query, deduped),
     (c) => c.length,
     (c) => `mean relevance ${mean(c.map((x) => x.relevance)).toFixed(2)}`,
   );
@@ -242,7 +228,7 @@ export async function runSearch(
   const results = await stage(
     "diversify (MMR)",
     gated.length,
-    () => diversify(gated, req.diversity, req.topK, semantics ?? undefined),
+    () => diversify(gated, req.diversity, req.topK),
     (c) => c.length,
     (c) => `${c.length} results, diversity=${req.diversity}`,
   );
@@ -257,7 +243,6 @@ export async function runSearch(
     results: results.length,
     domains: coverage.uniqueDomains,
     meanRelevance: Number(coverage.meanRelevance.toFixed(3)),
-    semantic: !!semantics,
   });
 
   return {
@@ -274,27 +259,6 @@ export async function runSearch(
     endedAt,
     hints,
   };
-}
-
-/** Embed the query and every candidate once; return a Semantics lookup, or null
- *  if no embedder is available (stages then use their lexical fallback). */
-async function embedCandidates(query: string, candidates: Candidate[]): Promise<Semantics | null> {
-  const embedder = await getEmbedder();
-  if (!embedder || candidates.length === 0) return null;
-  try {
-    const texts = candidates.map((c) => `${c.title}. ${c.description}`.slice(0, 2000));
-    const [queryVec, ...vecs] = await embedder.embed([query, ...texts]);
-    const byUrl = new Map<string, number[]>();
-    candidates.forEach((c, i) => byUrl.set(c.canonicalUrl, vecs[i]!));
-    return {
-      model: embedder.model,
-      queryVec,
-      vectorOf: (url) => byUrl.get(url),
-    };
-  } catch (err) {
-    console.warn("[embeddings] embedding failed; lexical fallback:", (err as Error).message);
-    return null;
-  }
 }
 
 function computeCoverage(

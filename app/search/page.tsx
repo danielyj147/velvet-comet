@@ -56,7 +56,7 @@ export default function SearchPage() {
   React.useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((c) => setAi({ allowed: !!c.allowed, reason: c.reason ?? "", provider: c.chatProvider ?? c.embedProvider }))
+      .then((c) => setAi({ allowed: !!c.allowed, reason: c.reason ?? "", provider: c.provider }))
       .catch(() => {});
   }, []);
 
@@ -457,8 +457,7 @@ function Why({ c }: { c: Candidate }) {
           <div className="flex gap-4">
             {[
               { label: "keyword (BM25)", v: c.signals.bm25, color: "var(--amber)" },
-              { label: "semantic", v: c.signals.dense, color: "var(--blue)" },
-              { label: "agreement", v: c.signals.consensus, color: "var(--green)" },
+              { label: "source agreement", v: c.signals.consensus, color: "var(--green)" },
             ].map((b) => (
               <div key={b.label} className="flex-1">
                 <div className="mb-1 flex justify-between text-[10px]"><span>{b.label}</span><span>{b.v == null ? "—" : b.v.toFixed(2)}</span></div>
