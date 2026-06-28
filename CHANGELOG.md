@@ -6,7 +6,22 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Added — adaptive completeness engine + CLI/studio surface (latest)
+### Changed — recall engine: decomposition, not domain-exclusion (latest)
+- **Replaced `excludeDomains` mining with query decomposition.** The root cause is that
+  one query is a single narrow probe; excluding domains only walks the *same* head-heavy
+  ranking deeper. Now: round 1 probes the **facets** (query + expansions); later rounds
+  extract **entities** (companies/products) from the results so far and probe each one,
+  **anchored to the topic** so a noisy entity ("Crayon") can't drift off-topic
+  (→ crayola.com). Entities come from the topic's own results, so it's generic across
+  clients and AI-free. Verified: entity probes added +23 on-topic distinct domains over
+  the facet round; drift eliminated by anchoring.
+- New `searchtrace/decompose.ts` (entity extraction). `MiningRound` now carries
+  `kind: facet|entity` + the sub-queries; the studio shows coverage-by-probe.
+- **One orchestration entrypoint** `searchtrace/run.ts` (`runAndSave`) — the CLI and the
+  API route are now thin adapters over it; the zod schema is the single source of
+  defaults (the CLI no longer re-states them). Frontend → backend → shared library.
+
+### Added — adaptive completeness engine + CLI/studio surface
 - **Adaptive completeness loop (#1):** each round re-searches a query variant while
   `excludeDomains = all domains seen so far` — the AI-free move that forces the long
   tail (trade pubs, regional press) to surface instead of "more of the same". Stops at

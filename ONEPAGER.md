@@ -20,20 +20,22 @@ care" — so the constraint isn't latency; it's coverage.
 
 ## What I built
 
-**Spectra mines the long tail instead of asking for a bigger list.** The core is an
-adaptive loop, and the trick is AI-free and native to Firecrawl:
+**Spectra probes the topic many ways instead of reading one ranking deeper.** A single
+query is one narrow probe of a topic's source space; a bigger limit just reads it deeper.
+Completeness needs *more, varied probes* — which is the deterministic, search-native
+version of the "deep research" the customer missed:
 
-> Search the query. Collect the domains it returned. Search **again with
-> `excludeDomains` = every domain seen so far** — which forces the *next tier* of
-> sources to surface, the ones that were buried under the SEO winners. Repeat until
-> there are enough *relevant* results, until a round stops finding new sources (the
-> tail is exhausted), or until a round budget is hit.
+> Search the query's **facets** (the query + expansions). Then extract the **entities**
+> (companies, products, people) from those results and search each one *within the
+> topic* — because a regional outlet covers "Acme Corp", not "competitive landscape of
+> fraud detection". Repeat the entity probes until there are enough relevant results,
+> until a probe stops finding new sources, or until the round budget is hit.
 
-So completeness becomes a target the system works toward, not a number you guess. The
-full pipeline is `expand → mine (the loop) → RRF fuse → de-duplicate → rerank →
-diversify (MMR)`, and the **trace makes it legible**: new relevant domains per round,
-and *why* it stopped (target / plateau / budget). Recall, dedup, and diversity are all
-measurable — nothing claims to be magic.
+The entity sub-queries are derived from the topic's **own results**, so this generalizes
+to any topic/client with no per-topic config, and it's AI-free. The full pipeline is
+`expand → facet probe → entity probes → RRF fuse → de-duplicate → rerank → diversify
+(MMR)`, and the **trace makes it legible**: new relevant domains per probe, and *why* it
+stopped (target / plateau / budget). Recall, dedup, and diversity are all measurable.
 
 The **surface matches the customer's reality** — a nightly batch of thousands of
 queries, not a person at a form:
@@ -55,8 +57,8 @@ This is the point of the exercise — I cut hard to keep one problem solved prop
 - **The browser-flow / step-debugging idea (#7, #11)** — built it, then **cut it**: a
   second problem on a different surface dilutes a completeness submission.
 - **"Deep research" as an agent (#1's nostalgia)** — Firecrawl's `/agent` already does
-  autonomous LLM research; I did *not* rebuild it. Mining is a cheaper, deterministic,
-  search-native path to coverage.
+  autonomous LLM research; I did *not* rebuild it. The decomposition here is a cheaper,
+  deterministic, search-native path to the same coverage goal.
 - **Markdown `dedupe` (#3)** is *intra-page*, different from my cross-result dedup, so I
   don't claim it; **fast snippets (#4)** already ship; **BYO proxies (#2), LinkedIn
   (#10), and reliably beating soft-blocks** are the anti-bot arms race — out of scope;

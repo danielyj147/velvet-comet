@@ -9,6 +9,7 @@ import {
 } from "./types.js";
 import { expand, heuristicExpander, type Expander } from "./expand.js";
 import { federateQuery, type RankedList, type RawItem } from "./firecrawl-search.js";
+import { extractEntities, mentionsEntity } from "./decompose.js";
 import { termList, tokenize, jaccard, domainOf, canonicalizeUrl } from "./text.js";
 import { rrfFuse } from "./fuse.js";
 import { dedup } from "./dedup.js";
@@ -19,11 +20,13 @@ import type { Recency } from "./types.js";
 import { log } from "./log.js";
 
 /** A result counts as "relevant" if its absolute lexical overlap with the original
- *  query clears this floor — cheap and stable across rounds (unlike pool-normalized
- *  relevance). It's only the loop's stop signal; final ranking uses the hybrid score. */
+ *  query clears this floor (or it mentions a topic-derived entity) — cheap and stable
+ *  across rounds. It's only the loop's stop signal; final ranking uses the hybrid score. */
 const RELEVANCE_FLOOR = 0.1;
-/** Stop mining when a round adds fewer than this many new relevant domains. */
+/** Stop probing when a round adds fewer than this many new relevant domains. */
 const PLATEAU_K = 2;
+/** Entity sub-queries issued per entity probe round (a credit/time guard). */
+const ENTITY_BATCH = 6;
 
 /** Result-recency (`recency`) maps to Firecrawl's `tbs` time filter. */
 const TBS: Record<Recency, string | undefined> = {
@@ -36,11 +39,11 @@ const TBS: Record<Recency, string | undefined> = {
 
 /**
  * The retrieval pipeline, and the trace it emits:
- *   expand → [adaptive mining loop] → RRF fuse → embed → dedup → rerank → gate → MMR
- * Completeness is won by the loop: each round searches a query variant while excluding
- * the domains already seen, so new sources surface instead of "more of the same"; it
- * stops at the target, a plateau, or the round budget. Precision is the relevance
- * floor (loop) + rerank/gate (final); diversity is MMR. Each stage self-reports
+ *   expand → [facet probe → entity probes] → RRF fuse → embed → dedup → rerank → gate → MMR
+ * Completeness is won by decomposition: probe the topic many ways (its facets, then
+ * entities pulled from its own results) rather than reading one ranking deeper. Probing
+ * stops at the target, a new-domain plateau, or the round budget. Precision is the
+ * relevance floor (loop) + rerank/gate (final); diversity is MMR. Each stage self-reports
  * count-in / count-out / time, so the funnel — and how complete it got — is legible.
  */
 export async function runSearch(
@@ -87,16 +90,33 @@ export async function runSearch(
     (e) => `${e.length} query variant(s)`,
   );
 
-  // 2. Adaptive completeness mining. Each round searches a query variant while
-  //    EXCLUDING every domain seen so far, so new domains surface instead of "forty
-  //    more of the same SEO winners". We stop when we have enough *relevant* results,
-  //    when a round stops adding new relevant domains (the tail is exhausted), or when
-  //    the round budget runs out. "Relevant" = an absolute lexical match to the
-  //    ORIGINAL query (cheap + stable across rounds); the expensive hybrid ranking
-  //    runs once at the end.
+  // 2. Decompose the topic into many probes. Completeness comes from probing the
+  //    source space many ways, not from a deeper single ranking. Round 1 probes the
+  //    FACETS (query + expansions). Later rounds probe ENTITIES extracted from the
+  //    results so far — the lever that surfaces niche sources, since a regional outlet
+  //    covers "Acme Corp", not "competitive landscape of fraud detection". Stop at the
+  //    target, a new-domain plateau, or the round budget.
+  //    "Relevant" = lexical match to the original query OR a hit on a topic-derived
+  //    entity (so entity probes aren't unfairly judged off-topic). Cheap + stable; the
+  //    expensive hybrid ranking runs once at the end.
   const queryTerms = new Set(termList(req.query));
+  const entitiesSeen = new Set<string>();
+  // Anchor entity probes with the 2 most distinctive topic terms so a noisy entity
+  // ("Crayon") can't drift off-topic (→ crayola.com): we search "Crayon <anchor>".
+  const anchor = [...queryTerms].sort((a, b) => b.length - a.length).slice(0, 2).join(" ");
   const isRelevant = (it: RawItem) =>
-    jaccard(queryTerms, tokenize(`${it.title} ${it.description}`)) >= RELEVANCE_FLOOR;
+    jaccard(queryTerms, tokenize(`${it.title} ${it.description}`)) >= RELEVANCE_FLOOR ||
+    mentionsEntity(it, entitiesSeen);
+
+  const federate = (q: string) =>
+    federateQuery(q, {
+      sources: req.sources,
+      categories: req.categories,
+      nicheDomains: req.nicheDomains,
+      limit: req.limit,
+      tbs,
+      contentMaxAge: req.scrapeContent ? req.maxAge : undefined,
+    });
 
   const lists: RankedList[] = [];
   const seenDomains = new Set<string>();
@@ -104,43 +124,63 @@ export async function runSearch(
   const rounds: SearchTrace["rounds"] = [];
   let stopReason: SearchTrace["stopReason"] = "budget";
 
-  for (let round = 1; round <= req.maxRounds; round++) {
-    const q = expansions[Math.min(round - 1, expansions.length - 1)]!;
-    const excludeDomains = round === 1 ? [] : [...seenDomains];
-    const roundLists = await stage(
-      `mine round ${round}`,
-      seenDomains.size,
-      () =>
-        federateQuery(q, {
-          sources: req.sources,
-          categories: req.categories,
-          nicheDomains: round === 1 ? req.nicheDomains : [], // explicit niche domains once
-          excludeDomains,
-          limit: req.limit,
-          tbs,
-          contentMaxAge: req.scrapeContent ? req.maxAge : undefined,
-        }),
-      (ls) => ls.reduce((n, l) => n + l.items.length, 0),
-      () => `"${q}"${round > 1 ? ` · excluding ${seenDomains.size} seen domains` : ""}`,
-    );
+  // Fold one probe round's lists into the running pool; returns new relevant domains.
+  const absorb = (roundNo: number, kind: "facet" | "entity", queries: string[], roundLists: RankedList[]) => {
     lists.push(...roundLists);
-
-    // Count NEW relevant domains this round, then mark every domain seen (so the
-    // next round excludes it — relevant or not, we don't want it again).
-    let newRelevantDomains = 0;
+    const newRel = new Set<string>();
     for (const l of roundLists)
       for (const it of l.items) {
-        const d = domainOf(it.url);
-        const rel = isRelevant(it);
-        if (rel) relevantUrls.add(canonicalizeUrl(it.url));
-        if (rel && !seenDomains.has(d)) newRelevantDomains++;
+        if (isRelevant(it)) {
+          relevantUrls.add(canonicalizeUrl(it.url));
+          const d = domainOf(it.url);
+          if (!seenDomains.has(d)) newRel.add(d);
+        }
       }
     for (const l of roundLists) for (const it of l.items) seenDomains.add(domainOf(it.url));
+    rounds.push({ round: roundNo, kind, queries, newRelevantDomains: newRel.size, relevantSoFar: relevantUrls.size });
+    return newRel.size;
+  };
 
-    rounds.push({ round, query: q, newRelevantDomains, relevantSoFar: relevantUrls.size });
+  // Round 1 — facet probes (query + expansions), federated in parallel.
+  const facetLists = await stage(
+    "probe: facets",
+    expansions.length,
+    async () => (await Promise.all(expansions.map(federate))).flat(),
+    (ls) => ls.reduce((n, l) => n + l.items.length, 0),
+    (ls) => `${expansions.length} facets → ${ls.length} lists`,
+  );
+  absorb(1, "facet", expansions, facetLists);
 
-    if (relevantUrls.size >= req.targetResults) { stopReason = "target reached"; break; }
-    if (round > 1 && newRelevantDomains < PLATEAU_K) { stopReason = "plateau"; break; }
+  // Rounds 2..maxRounds — entity probes. Extract entities from everything seen, search
+  // the unused ones, repeat until target / plateau / budget.
+  if (relevantUrls.size >= req.targetResults) {
+    stopReason = "target reached";
+  } else {
+    const probed = new Set<string>();
+    for (let round = 2; round <= req.maxRounds; round++) {
+      const pool = lists.flatMap((l) => l.items);
+      const fresh = extractEntities(pool, req.query, 12).filter((e) => !probed.has(e.toLowerCase()));
+      if (fresh.length === 0) { stopReason = "plateau"; break; }
+      const batch = fresh.slice(0, ENTITY_BATCH);
+      batch.forEach((e) => {
+        probed.add(e.toLowerCase());
+        entitiesSeen.add(e.toLowerCase());
+      });
+      // Probe the entity within the topic, not the bare entity.
+      const probeQueries = batch.map((e) => (anchor ? `${e} ${anchor}` : e));
+
+      const entityLists = await stage(
+        `probe: entities #${round - 1}`,
+        seenDomains.size,
+        async () => (await Promise.all(probeQueries.map(federate))).flat(),
+        (ls) => ls.reduce((n, l) => n + l.items.length, 0),
+        () => probeQueries.join(", "),
+      );
+      const gained = absorb(round, "entity", probeQueries, entityLists);
+
+      if (relevantUrls.size >= req.targetResults) { stopReason = "target reached"; break; }
+      if (gained < PLATEAU_K) { stopReason = "plateau"; break; }
+    }
   }
 
   const candidatesFound = lists.reduce((n, l) => n + l.items.length, 0);

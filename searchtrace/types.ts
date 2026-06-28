@@ -146,11 +146,15 @@ export interface Coverage {
   diversityIndex: number;
 }
 
-/** One adaptive mining round — the per-round coverage growth that answers
- *  "how complete is this?" (new relevant domains discovered before it plateaued). */
+/** One probe round of the decomposition. "facet" = the query + its expansions;
+ *  "entity" = sub-queries derived from the topic's own results (the lever that
+ *  surfaces niche sources). Per-round new-domain growth answers "how complete is
+ *  this?" — and where it plateaued. */
 export interface MiningRound {
   round: number;
-  query: string;
+  kind: "facet" | "entity";
+  /** The sub-queries issued this round (entities, or the facet variants). */
+  queries: string[];
   newRelevantDomains: number;
   relevantSoFar: number;
 }

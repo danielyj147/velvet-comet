@@ -5,10 +5,13 @@ intelligence — a ranked list fails: raising the limit just returns more of the
 popular sites, and the trade pubs, regional press, and niche forums never surface at
 any limit.
 
-**Spectra mines for the long tail.** Each round it re-searches while *excluding every
-domain it has already seen*, so new sources surface instead of more of the same — and
-it keeps going until it has enough relevant results, the new sources dry up, or a
-budget is hit. It shows, per round, how much new coverage it found.
+**Spectra probes the topic many ways instead of reading one ranking deeper.** A bigger
+limit is a *deeper single probe* (more of the same winners). Completeness comes from
+*more, varied probes*: it searches the query's facets, then extracts the entities
+(companies, products) from those results and searches each one within the topic — which
+is what surfaces the regional outlet that covers *the company*, not the generic topic.
+It keeps probing until it has enough relevant results, new sources dry up, or a budget
+is hit, and shows how much new coverage each probe added.
 
 It's built for the real use case (a nightly batch of thousands of queries): the **CLI**
 is the primary surface, and a **studio** web UI browses the sessions the batch produced.
@@ -40,21 +43,27 @@ make embeddings   # ollama pull nomic-embed-text   (then set EMBED_MODEL in .env
 
 ## How completeness works
 
-`expand → [mine: search, excluding seen domains; repeat until target / plateau /
-budget] → RRF fuse → dedup → rerank → diversify (MMR)`. The trace records new
-relevant domains per round and why it stopped — so "how complete is this?" is a number,
-not a guess. Diversity, dedup, and recall are all measurable; nothing claims to be magic.
+`expand → [facet probe → entity probes] → RRF fuse → dedup → rerank → diversify (MMR)`.
+The decomposition (facets + topic-anchored entity sub-queries derived from the results)
+is the recall engine; the trace records new relevant domains per probe round and why it
+stopped — so "how complete is this?" is a number, not a guess. Recall, dedup, and
+diversity are all measurable; nothing claims to be magic.
 
-## Layout
+## Architecture
+
+Frontend → backend → library. The studio (React) calls `/api/search` (a Next route
+handler, server-side) which calls the shared `searchtrace` library; the CLI calls the
+same library directly. Both go through one entrypoint (`searchtrace/run.ts`), so there's
+no second copy of the logic, and the API key never leaves the server.
 
 | Path | What |
 | --- | --- |
-| `searchtrace/` | the engine (mining loop, fuse, dedup, rerank, diversify) + CLI + sessions |
-| `app/` | the studio (Next.js): sessions browser + ad-hoc search, ⌘K |
+| `searchtrace/` | the shared engine: decomposition, fuse, dedup, rerank, diversify, sessions, CLI |
+| `app/` | the studio (Next.js): sessions browser + ad-hoc search, ⌘K — a thin client of the engine |
 | `data/` | the brief's internal numbers |
 
 ## Notes
 
 - `FIRECRAWL_API_KEY` via `.env` only (gitignored). No key in code or history.
 - Models are opt-in (`EMBED_MODEL` / `EXPAND_MODEL`); unset → full lexical pipeline.
-  The mining loop itself is AI-free (it's just `excludeDomains`).
+  The decomposition itself is AI-free (deterministic facets + entity extraction).

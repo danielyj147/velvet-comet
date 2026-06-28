@@ -335,7 +335,7 @@ function CoverageStrip({ trace, onInspect, inspecting }: { trace: SearchTrace; o
       <span>· searched <strong className="text-[var(--foreground)]">{trace.lists.length}</strong> source list(s)</span>
       {c.duplicatesCollapsed > 0 && <span>· merged <strong className="text-[var(--foreground)]">{c.duplicatesCollapsed}</strong> duplicate(s)</span>}
       <span>· <strong className="text-[var(--foreground)]">{c.uniqueDomains}</strong> distinct domains</span>
-      <span>· <strong className="text-[var(--foreground)]">{trace.rounds.length}</strong> round(s), stopped: {trace.stopReason}</span>
+      <span>· <strong className="text-[var(--foreground)]">{trace.rounds.length}</strong> probe round(s), stopped: {trace.stopReason}</span>
       <button onClick={onInspect} className={cn("ml-auto rounded-full border px-3 py-0.5", inspecting && "border-[var(--primary)] text-[var(--foreground)]")}>
         {inspecting ? "hide" : "how it works"}
       </button>
@@ -360,6 +360,20 @@ function Inspect({ trace }: { trace: SearchTrace }) {
           <span className="tabular-nums text-[var(--muted)]">{s.countIn}→{s.countOut} · {s.ms}ms</span>
         </div>
       ))}
+      {/* Decomposition: how coverage grew probe by probe. */}
+      <div className="mt-4 mb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+        Coverage by probe — stopped: {trace.stopReason}
+      </div>
+      <div className="space-y-1">
+        {trace.rounds.map((r) => (
+          <div key={r.round} className="text-xs" title={r.queries.join(" · ")}>
+            <span className="mr-2 rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)]">{r.kind}</span>
+            <span className="text-[var(--green)]">+{r.newRelevantDomains}</span> new domains
+            <span className="text-[var(--muted)]"> ({r.relevantSoFar} relevant total) · {r.queries.length} {r.kind === "entity" ? "entities" : "facets"}</span>
+          </div>
+        ))}
+      </div>
+
       {trace.hints.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {trace.hints.map((h, i) => (
@@ -367,7 +381,6 @@ function Inspect({ trace }: { trace: SearchTrace }) {
           ))}
         </div>
       )}
-      <div className="mt-3 text-[11px] text-[var(--muted)]">expansions: {trace.expansions.map((e) => `"${e}"`).join(", ")}</div>
     </div>
   );
 }

@@ -9,8 +9,8 @@
  */
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
-import { runSearch } from "./pipeline.js";
-import { saveSession, sessionsDir } from "./sessions.js";
+import { runAndSave } from "./run.js";
+import { sessionsDir } from "./sessions.js";
 import type { Recency, SearchRequestInput, SearchSource, Tier } from "./types.js";
 
 const HELP = `
@@ -22,7 +22,7 @@ USAGE
 
 SEARCH
   --target <n>        relevant results to aim for           (default 25)
-  --max-rounds <n>    mining-round budget (1–6)             (default 4)
+  --max-rounds <n>    probe-round budget (1–6)              (default 4)
   --tier <t>          fast | balanced | thorough            (default balanced)
   --recency <r>       any | day | week | month | year       (default any)
   --sources <a,b>     web,news                              (default web)
@@ -47,35 +47,36 @@ function flag(name: string): string | undefined {
 const has = (name: string) => process.argv.includes(name);
 const list = (s?: string) => s?.split(",").map((x) => x.trim()).filter(Boolean) ?? [];
 
+// Only set fields the user actually passed; the zod schema (searchRequest) is the
+// single source of defaults, so the CLI never re-states them.
 function buildRequest(query: string): SearchRequestInput {
-  return {
-    query,
-    tier: (flag("--tier") as Tier) ?? "balanced",
-    recency: (flag("--recency") as Recency) ?? "any",
-    sources: (list(flag("--sources")) as SearchSource[]).length
-      ? (list(flag("--sources")) as SearchSource[])
-      : ["web"],
-    categories: list(flag("--categories")),
-    nicheDomains: list(flag("--domains")),
-    targetResults: Number(flag("--target") ?? 25),
-    maxRounds: Number(flag("--max-rounds") ?? 4),
-    diversity: flag("--diversity") ? Number(flag("--diversity")) : 0.3,
-    minRelevance: flag("--min-relevance") ? Number(flag("--min-relevance")) : 0,
-    topK: Number(flag("--target") ?? 25),
-    limit: Number(flag("--limit") ?? 10),
-  };
+  const req: SearchRequestInput = { query };
+  const num = (f: string) => (flag(f) != null ? Number(flag(f)) : undefined);
+  if (flag("--tier")) req.tier = flag("--tier") as Tier;
+  if (flag("--recency")) req.recency = flag("--recency") as Recency;
+  if (list(flag("--sources")).length) req.sources = list(flag("--sources")) as SearchSource[];
+  if (list(flag("--categories")).length) req.categories = list(flag("--categories"));
+  if (list(flag("--domains")).length) req.nicheDomains = list(flag("--domains"));
+  if (num("--target") !== undefined) (req.targetResults = num("--target")), (req.topK = num("--target"));
+  if (num("--max-rounds") !== undefined) req.maxRounds = num("--max-rounds");
+  if (num("--diversity") !== undefined) req.diversity = num("--diversity");
+  if (num("--min-relevance") !== undefined) req.minRelevance = num("--min-relevance");
+  if (num("--limit") !== undefined) req.limit = num("--limit");
+  return req;
 }
 
-async function runOne(query: string): Promise<string> {
-  const trace = await runSearch(buildRequest(query), { useModels: !has("--no-ai") });
-  let saved = "";
-  if (!has("--no-save")) saved = await saveSession(trace, flag("--out") ?? sessionsDir());
+async function runOne(query: string): Promise<string | null> {
+  const { trace, sessionId } = await runAndSave(buildRequest(query), {
+    useModels: !has("--no-ai"),
+    save: !has("--no-save"),
+    dir: flag("--out"),
+  });
   const c = trace.coverage;
   console.log(
     `✓ "${query}" — ${trace.results.length} results · ${c.uniqueDomains} domains · ` +
-      `${trace.rounds.length} rounds (${trace.stopReason})${saved ? ` · saved ${saved}` : ""}`,
+      `${trace.rounds.length} probes (${trace.stopReason})${sessionId ? ` · saved ${sessionId}` : ""}`,
   );
-  return saved;
+  return sessionId;
 }
 
 /** Run items through `worker` with a fixed concurrency (respects rate limits). */
