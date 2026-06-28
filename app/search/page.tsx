@@ -336,9 +336,9 @@ function CoverageStrip({ trace, onInspect, inspecting }: { trace: SearchTrace; o
   return (
     <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
       <span><strong className="text-[var(--foreground)]">{trace.results.length}</strong> results</span>
-      <span>· searched <strong className="text-[var(--foreground)]">{trace.lists.length}</strong> source list(s)</span>
-      {c.duplicatesCollapsed > 0 && <span>· merged <strong className="text-[var(--foreground)]">{c.duplicatesCollapsed}</strong> duplicate(s)</span>}
       <span>· <strong className="text-[var(--foreground)]">{c.uniqueDomains}</strong> distinct domains</span>
+      <span>· from <strong className="text-[var(--foreground)]">{c.candidatesFound}</strong> candidates gathered</span>
+      {c.duplicatesCollapsed > 0 && <span>· <strong className="text-[var(--foreground)]">{c.duplicatesCollapsed}</strong> duplicate(s) merged</span>}
       {(trace.rounds?.length ?? 0) > 0 && (
         <span>· <strong className="text-[var(--foreground)]">{trace.rounds.length}</strong> probe round(s), stopped: {trace.stopReason}</span>
       )}
