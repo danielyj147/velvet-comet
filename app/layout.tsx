@@ -6,8 +6,8 @@ import { Bubbles } from "@/components/Bubbles";
 import { Onboarding } from "@/components/Onboarding";
 
 export const metadata: Metadata = {
-  title: "Spectra — see why, not just what",
-  description: "Observable web retrieval and browser flows.",
+  title: "Spectra — search that's actually complete",
+  description: "Observable, complete web search over Firecrawl.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

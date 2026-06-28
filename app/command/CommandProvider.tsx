@@ -75,7 +75,6 @@ export function CommandProvider({ children }: { children: React.ReactNode }) {
   const nav: Cmd[] = React.useMemo(
     () => [
       { id: "nav-search", group: "Navigate", label: "Go to Search", perform: () => router.push("/search") },
-      { id: "nav-flows", group: "Navigate", label: "Go to Flows", perform: () => router.push("/flows") },
       { id: "nav-home", group: "Navigate", label: "Go Home", perform: () => router.push("/") },
     ],
     [router],
