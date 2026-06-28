@@ -1,4 +1,5 @@
 import { termList } from "./text.js";
+import { llmExtractEntities } from "./llm.js";
 import type { RawItem } from "./firecrawl-search.js";
 
 /**
@@ -55,6 +56,21 @@ export function extractEntities(items: RawItem[], query: string, max = 6): strin
     .sort((a, b) => b.n - a.n || b.display.length - a.display.length)
     .slice(0, max)
     .map((e) => e.display);
+}
+
+/** Pick the entities to probe next: an LLM does it sharply when AI is on, otherwise
+ *  the heuristic above. Falls back automatically if the model returns nothing. */
+export async function deriveEntities(
+  items: RawItem[],
+  query: string,
+  max: number,
+  useModels: boolean,
+): Promise<string[]> {
+  if (useModels) {
+    const llm = await llmExtractEntities(query, items, max);
+    if (llm.length) return llm;
+  }
+  return extractEntities(items, query, max);
 }
 
 /** Does a result hit one of the topic-derived entities? Used to count an entity-probe

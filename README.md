@@ -35,11 +35,24 @@ make studio                    # http://localhost:8788 — scroll sessions, or s
 Every run is saved as a session in `./sessions/` (override with `SPECTRA_SESSIONS_DIR`);
 the CLI and the studio share that folder. Press **⌘K** in the studio to jump anywhere.
 
-Optional — semantic ranking via a local model (auto lexical fallback if absent):
+### Optional: turn on AI (starting from a clean machine)
+
+Everything above runs with **just a Firecrawl key** — a fully lexical pipeline, no
+accounts, no models. AI is opt-in and only makes the expansion/entity probes sharper
+(and adds semantic ranking). Pick one:
 
 ```bash
-make embeddings   # ollama pull nomic-embed-text   (then set EMBED_MODEL in .env)
+# A) Local, zero accounts — installs Ollama + pulls a small embed + chat model:
+make models        # then it prints the EMBED_MODEL / EXPAND_MODEL lines for .env
+
+# B) Hosted — just add a key to .env (no local setup):
+#   ANTHROPIC_API_KEY=sk-ant-...   # Claude: expansion + entity probes
+#   OPENAI_API_KEY=sk-...          # OpenAI: expansion + entity probes + embeddings
 ```
+
+Then flip the **AI** toggle in the studio (or pass nothing extra on the CLI). If a
+provider is down or unset, it silently falls back to the lexical path — search never
+breaks. `AI_DISABLED=1` hard-disables it on a deploy.
 
 ## How completeness works
 

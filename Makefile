@@ -4,7 +4,7 @@
 # ./sessions folder, so the studio shows whatever the batch produced.
 
 .DEFAULT_GOAL := help
-.PHONY: help install env typecheck test cli batch studio dev embeddings clean
+.PHONY: help install env typecheck test cli batch studio dev models clean
 
 Q ?= competitive intelligence platforms
 ARGS ?=
@@ -36,8 +36,8 @@ studio: ## Build + serve the studio on :8788 (browses ./sessions)
 dev: ## Studio in dev mode (hot reload)
 	npm run dev
 
-## --- optional / housekeeping ---
-embeddings: ## Pull the local embedding model (optional — semantic ranking)
-	ollama pull nomic-embed-text
+## --- optional AI (sharper expansion + entity probes + semantic ranking) ---
+models: ## Install Ollama + pull local models (or set ANTHROPIC_API_KEY/OPENAI_API_KEY in .env)
+	bash scripts/setup-ollama.sh
 clean: ## Remove build artifacts (keeps ./sessions)
 	rm -rf .next dist 2>/dev/null || true

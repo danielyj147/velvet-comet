@@ -16,6 +16,7 @@ const TIERS: Tier[] = ["fast", "balanced", "thorough"];
 const SOURCES = ["web", "news"] as const;
 const CATEGORIES = ["research", "github", "pdf"] as const;
 const RECENCIES: Recency[] = ["any", "day", "week", "month", "year"];
+const PROVIDER_LABEL: Record<string, string> = { anthropic: "Claude", openai: "OpenAI", ollama: "Ollama (local)" };
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const relColor = (r: number) => (r > 0.55 ? "var(--green)" : r > 0.3 ? "var(--amber)" : "var(--muted)");
@@ -36,7 +37,7 @@ export default function SearchPage() {
   const [targetResults, setTargetResults] = React.useState(25);
   const [maxRounds, setMaxRounds] = React.useState(4);
   const [useAI, setUseAI] = React.useState(false);
-  const [ai, setAi] = React.useState<{ allowed: boolean; reason: string }>({ allowed: false, reason: "" });
+  const [ai, setAi] = React.useState<{ allowed: boolean; reason: string; provider?: string }>({ allowed: false, reason: "" });
 
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [showInspect, setShowInspect] = React.useState(false);
@@ -55,7 +56,7 @@ export default function SearchPage() {
   React.useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((c) => setAi({ allowed: !!c.allowed, reason: c.reason ?? "" }))
+      .then((c) => setAi({ allowed: !!c.allowed, reason: c.reason ?? "", provider: c.chatProvider ?? c.embedProvider }))
       .catch(() => {});
   }, []);
 
@@ -317,9 +318,12 @@ function Advanced(p: any) {
           </select>
         )}
       </span>
-      <span className="flex items-center gap-2" title={p.ai.allowed ? "Semantic ranking + LLM expansion (local Ollama)" : p.ai.reason}>
+      <span
+        className="flex items-center gap-2"
+        title={p.ai.allowed ? `Sharper expansion + entity probes via ${PROVIDER_LABEL[p.ai.provider] ?? p.ai.provider}` : p.ai.reason}
+      >
         <Sparkles className={cn("h-4 w-4", p.ai.allowed && p.useAI ? "text-[var(--primary)]" : "text-[var(--muted)]")} />
-        AI
+        AI{p.ai.allowed && p.ai.provider ? ` · ${PROVIDER_LABEL[p.ai.provider] ?? p.ai.provider}` : ""}
         <Switch checked={p.ai.allowed && p.useAI} disabled={!p.ai.allowed} onCheckedChange={p.setUseAI} />
       </span>
     </div>

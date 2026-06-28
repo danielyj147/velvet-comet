@@ -9,7 +9,7 @@ import {
 } from "./types.js";
 import { expand, heuristicExpander, type Expander } from "./expand.js";
 import { federateQuery, type RankedList, type RawItem } from "./firecrawl-search.js";
-import { extractEntities, mentionsEntity } from "./decompose.js";
+import { deriveEntities, mentionsEntity } from "./decompose.js";
 import { termList, tokenize, jaccard, domainOf, canonicalizeUrl } from "./text.js";
 import { rrfFuse } from "./fuse.js";
 import { dedup } from "./dedup.js";
@@ -159,7 +159,7 @@ export async function runSearch(
     const probed = new Set<string>();
     for (let round = 2; round <= req.maxRounds; round++) {
       const pool = lists.flatMap((l) => l.items);
-      const fresh = extractEntities(pool, req.query, 12).filter((e) => !probed.has(e.toLowerCase()));
+      const fresh = (await deriveEntities(pool, req.query, 12, useModels)).filter((e) => !probed.has(e.toLowerCase()));
       if (fresh.length === 0) { stopReason = "plateau"; break; }
       const batch = fresh.slice(0, ENTITY_BATCH);
       batch.forEach((e) => {

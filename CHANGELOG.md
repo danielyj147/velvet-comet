@@ -6,7 +6,20 @@ log is chronological and honest rather than versioned.
 
 ## [Unreleased]
 
-### Changed — recall engine: decomposition, not domain-exclusion (latest)
+### Added — pluggable AI providers + LLM entity probes + clean-slate setup (latest)
+- **Three providers, all opt-in:** Anthropic (Claude), OpenAI, or local Ollama — for
+  query expansion and entity probes; OpenAI/Ollama also do embeddings (Anthropic has
+  none). One `chat()` dispatch (`llm.ts`) + provider-resolved embeddings; `config.ts`
+  resolves provider by `LLM_PROVIDER` else anthropic > openai > ollama. Everything
+  fails soft to the lexical path, so a fresh clone still runs on a Firecrawl key alone.
+- **LLM-assisted entity probes:** when AI is on, an LLM names the entities to probe
+  (sharper than the heuristic); falls back automatically. (`decompose.deriveEntities`)
+- **Clean-slate setup:** `make models` → `scripts/setup-ollama.sh` installs Ollama,
+  starts it, pulls a small embed + chat model, and prints the `.env` lines. README has
+  a clean-machine "turn on AI" section; `.env.example` documents all three providers.
+- Studio AI toggle shows the resolved provider (Claude / OpenAI / Ollama).
+
+### Changed — recall engine: decomposition, not domain-exclusion
 - **Replaced `excludeDomains` mining with query decomposition.** The root cause is that
   one query is a single narrow probe; excluding domains only walks the *same* head-heavy
   ranking deeper. Now: round 1 probes the **facets** (query + expansions); later rounds

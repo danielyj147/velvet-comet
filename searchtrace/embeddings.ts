@@ -1,16 +1,13 @@
 /**
- * Embeddings via a local Ollama model — the semantic upgrade for the precision
- * (rerank), dedup, and diversity (MMR) stages. Everything degrades gracefully:
- * if Ollama isn't reachable, getEmbedder() returns null and each stage falls back
- * to its lexical path, so the pipeline always runs.
- *
- * Opt-in: the semantic path is OFF unless EMBED_MODEL is set, so a fresh clone
- * (reviewer, or a deployed live link) runs the lexical path with no local models.
- * Set EMBED_MODEL (e.g. qwen3-embedding:8b) + run Ollama to enable it.
+ * Embeddings — the semantic upgrade for the precision (rerank), dedup, and diversity
+ * (MMR) stages. Provider is resolved from config (OpenAI or local Ollama; Anthropic
+ * has no embeddings API). Everything degrades gracefully: if no embedder is configured
+ * or reachable, getEmbedder() returns null and each stage falls back to its lexical
+ * path, so the pipeline always runs with just a Firecrawl key.
  */
+import { resolveModels } from "./config.js";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-const EMBED_MODEL = process.env.EMBED_MODEL ?? "";
 
 export interface Embedder {
   model: string;
@@ -18,67 +15,81 @@ export interface Embedder {
   embed(texts: string[]): Promise<number[][]>;
 }
 
-/** Ollama exposes two embedding shapes across versions: the newer batch
- *  `/api/embed` ({input:[...]} -> {embeddings:[[...]]}) and the older
- *  `/api/embeddings` ({prompt} -> {embedding:[...]}). We detect which works. */
-type EmbedMode = "embed" | "embeddings";
-
-// Cache the probe result so we don't re-pay the (possibly slow) model cold-load on
-// every search. Large embedding models can take >5s to load on first call.
-let probeCache: { at: number; embedder: Embedder | null } | null = null;
+// Cache the (possibly slow) probe so we don't re-pay a cold model load per search.
+let probeCache: { key: string; at: number; embedder: Embedder | null } | null = null;
 const PROBE_TTL_MS = 5 * 60_000;
-const PROBE_TIMEOUT_MS = 30_000;
 
-/** Return a cached Embedder, or probe Ollama (both embed routes) for one.
- *  Returns null immediately when EMBED_MODEL is unset (model path opt-in). */
+/** Return an Embedder for the configured provider, or null (→ lexical fallback). */
 export async function getEmbedder(): Promise<Embedder | null> {
-  if (!EMBED_MODEL) return null;
-  if (probeCache && Date.now() - probeCache.at < PROBE_TTL_MS) return probeCache.embedder;
-  const embedder = await probeEmbedder();
-  probeCache = { at: Date.now(), embedder };
+  const choice = resolveModels().embed;
+  if (!choice) return null;
+  const key = `${choice.provider}:${choice.model}`;
+  if (probeCache && probeCache.key === key && Date.now() - probeCache.at < PROBE_TTL_MS) return probeCache.embedder;
+
+  const embedder =
+    choice.provider === "openai" ? new OpenAIEmbedder(choice.model) : await probeOllama(choice.model);
+  probeCache = { key, at: Date.now(), embedder };
   return embedder;
 }
 
-async function probeEmbedder(): Promise<Embedder | null> {
+// --- OpenAI -----------------------------------------------------------------
+class OpenAIEmbedder implements Embedder {
+  private cache = new Map<string, number[]>();
+  constructor(public model: string) {}
+
+  async embed(texts: string[]): Promise<number[][]> {
+    const missing = texts.filter((t) => !this.cache.has(t));
+    for (let i = 0; i < missing.length; i += 128) {
+      const batch = missing.slice(i, i + 128);
+      const res = await fetch("https://api.openai.com/v1/embeddings", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENAI_API_KEY!}` },
+        body: JSON.stringify({ model: this.model, input: batch }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) throw new Error(`OpenAI embeddings failed: ${res.status}`);
+      const json = (await res.json()) as { data: { embedding: number[] }[] };
+      json.data.forEach((d, j) => this.cache.set(batch[j]!, d.embedding));
+    }
+    return texts.map((t) => this.cache.get(t)!);
+  }
+}
+
+// --- Ollama (two embedding route shapes across versions) --------------------
+type EmbedMode = "embed" | "embeddings";
+const PROBE_TIMEOUT_MS = 30_000;
+
+async function probeOllama(model: string): Promise<Embedder | null> {
   for (const mode of ["embed", "embeddings"] as EmbedMode[]) {
     try {
       const res = await fetch(`${OLLAMA_HOST}/api/${mode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          mode === "embed"
-            ? { model: EMBED_MODEL, input: ["ping"] }
-            : { model: EMBED_MODEL, prompt: "ping" },
-        ),
+        body: JSON.stringify(mode === "embed" ? { model, input: ["ping"] } : { model, prompt: "ping" }),
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
-      if (res.ok) return new OllamaEmbedder(mode);
+      if (res.ok) return new OllamaEmbedder(model, mode);
       if (res.status === 404) continue; // wrong route or model not pulled — try the other
       console.warn(`[embeddings] Ollama /api/${mode} responded ${res.status}; lexical fallback.`);
       return null;
     } catch {
-      console.warn(`[embeddings] Ollama ${OLLAMA_HOST} slow/unreachable for ${EMBED_MODEL}; lexical fallback.`);
+      console.warn(`[embeddings] Ollama ${OLLAMA_HOST} slow/unreachable for ${model}; lexical fallback.`);
       return null;
     }
   }
-  console.warn(
-    `[embeddings] no working embed route for model "${EMBED_MODEL}" — pull it with ` +
-      `\`ollama pull ${EMBED_MODEL}\`. Using lexical fallback.`,
-  );
+  console.warn(`[embeddings] no working embed route for "${model}" — pull it (\`ollama pull ${model}\`). Lexical fallback.`);
   return null;
 }
 
 class OllamaEmbedder implements Embedder {
-  model = EMBED_MODEL;
   private cache = new Map<string, number[]>();
-  constructor(private mode: EmbedMode) {}
+  constructor(public model: string, private mode: EmbedMode) {}
 
   async embed(texts: string[]): Promise<number[][]> {
     const missing = texts.filter((t) => !this.cache.has(t));
     for (let i = 0; i < missing.length; i += 64) {
       const batch = missing.slice(i, i + 64);
-      const vecs =
-        this.mode === "embed" ? await this.embedBatch(batch) : await this.embedEach(batch);
+      const vecs = this.mode === "embed" ? await this.embedBatch(batch) : await this.embedEach(batch);
       vecs.forEach((vec, j) => this.cache.set(batch[j]!, vec));
     }
     return texts.map((t) => this.cache.get(t)!);
